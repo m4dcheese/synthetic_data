@@ -1,0 +1,2 @@
+# load mnist
+# architecture
