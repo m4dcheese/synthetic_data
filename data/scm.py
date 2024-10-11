@@ -37,6 +37,14 @@ class SCM:
 
 
         # Select observed x variables that stay fixed for all samples
+        if config.scm.allow_xy_overlap:
+            required_var = max(num_x, num_y)
+        else:
+            required_var = num_x + num_y
+        scm_var = config.scm.num_layers * config.scm.layer_dim + config.scm.num_causes
+        if required_var > scm_var:
+            raise Exception("Warning: More variables required than the SCM has nodes.")
+
         generator = np.random.Generator(np.random.PCG64())
         x_var_locations = []
         while len(x_var_locations) < num_x:

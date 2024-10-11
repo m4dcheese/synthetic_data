@@ -15,7 +15,7 @@ def make_dotdict_recursive(data: dict) -> DotDict:
     data = DotDict(data)
     for key in data:
         if type(data[key]) is dict:
-            data[key] = DotDict(data[key])
+            data[key] = make_dotdict_recursive(data[key])
 
     return data
 
