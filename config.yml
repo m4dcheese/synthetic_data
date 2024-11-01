@@ -1,5 +1,3 @@
-training: 
-  epochs: 100
 
 target:
   num_x: 10
@@ -17,3 +15,81 @@ scm:
   layer_dim: 10
   p_dropout: 0.8
   allow_xy_overlap: True
+
+
+
+# ----- ----- ----- ----- ----- ----- ----- ----- -----
+# ----- ----- ----- ----- ----- ----- ----- ----- -----
+
+# ----- ----- ----- ----- T R A I N I N G
+training: 
+  total_iterations: 100
+  batch_size: 64
+  batches_per_iteration: 100
+  num_data_workers: 0
+
+# ----- ----- ----- ----- O P T I M I Z E R
+optimizer:
+  optimizer_str: "AdamW"
+  lr: 0.0001
+  weight_decay: 0.0001
+
+# ----- ----- ----- ----- C R I T E R I O N
+criterion:
+  criterion_str: "bce"
+
+# ----- ----- ----- ----- D A T A
+data: 
+  features:
+    min: 1
+    max: 10
+  classes:
+    min: 2
+    max: 2
+  samples: 
+    min: 250
+    max: 1000
+
+# ----- ----- ----- ----- M L P
+mlp: 
+  num_layers: 3 # input + hidden + output
+  hidden_dim: 128
+  output_dim: 1
+  activation_str: relu
+
+# ----- ----- ----- ----- M O D E L
+cfm: 
+  transformer: 
+    encoder: 
+      num_layers: 2
+      encoder_layer:
+        d_model: 512  
+        nhead: 8
+        dim_feedforward: 2048
+        dropout: 0.1
+        activation_str: relu
+        layer_norm_eps: 1e-5
+        batch_first: true
+        norm_first: false
+        bias: true
+
+    decoder:
+      num_layers: 2
+      decoder_layer:
+        d_model: 512  
+        nhead: 8
+        dim_feedforward: 2048
+        dropout: 0.1
+        activation_str: relu
+        layer_norm_eps: 1e-5
+        batch_first: true
+        norm_first: false
+        bias: true
+
+  data_projection: 
+    num_layers: 1
+    hidden_dim: 512
+
+  weight_projection: 
+    num_layers: 1
+    hidden_dim: 512
