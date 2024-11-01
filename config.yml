@@ -25,6 +25,7 @@ scm:
 training: 
   total_iterations: 100
   batch_size: 64
+  mlps_per_batch: 16 # needs to be a factor of batch_size
   batches_per_iteration: 100
   num_data_workers: 0
 
@@ -47,8 +48,9 @@ data:
     min: 2
     max: 2
   samples: 
-    min: 250
+    min: 100
     max: 1000
+
 
 # ----- ----- ----- ----- M L P
 mlp: 
@@ -56,6 +58,7 @@ mlp:
   hidden_dim: 128
   output_dim: 1
   activation_str: relu
+  bias: true
 
 # ----- ----- ----- ----- M O D E L
 cfm: 

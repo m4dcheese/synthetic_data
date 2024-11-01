@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from config import load_config
+from config import config
 from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
 from gym.train import train
@@ -19,8 +19,6 @@ from utils import get_criterion, get_number_parameters, get_optimizer
 
 
 def main():
-    config = load_config()
-
     cfm_model = CFM(
         data_projection=DataProjection(
             input_dim=config.data.features.max,

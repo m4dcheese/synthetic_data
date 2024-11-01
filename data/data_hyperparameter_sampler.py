@@ -16,25 +16,26 @@ class DataHyperparameterSampler:
 
         self.config_space.add_hyperparameters(
             [
-                self._UniformInteger_or_Constant(
+                self._uniform_or_constant(
                     "features",
                     self.data_config.features.min,
                     self.data_config.features.max,
                 ),
-                self._UniformInteger_or_Constant(
+                self._uniform_or_constant(
                     "classes",
                     self.data_config.classes.min,
                     self.data_config.classes.max,
                 ),
-                self._UniformInteger_or_Constant(
+                self._uniform_or_constant(
                     "samples",
                     self.data_config.samples.min,
                     self.data_config.samples.max,
                 ),
+                self._uniform_or_constant("t", 0, 1),
             ]
         )
 
-    def _UniformInteger_or_Constant(self, name, lower, upper):
+    def _uniform_or_constant(self, name, lower, upper):
         hp = None
         if lower < upper:
             hp = CSH.UniformIntegerHyperparameter(

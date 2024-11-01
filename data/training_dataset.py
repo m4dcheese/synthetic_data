@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import math
+import time
 
 import torch
 from config import make_dotdict_recursive
 from torch import nn
 from torch.utils.data import IterableDataset
 from utils import get_activation
-
-import time
 
 
 class TrainingDataset(IterableDataset):
@@ -73,51 +72,96 @@ class TrainingDataset(IterableDataset):
         start_time = time.monotonic_ns()
         # ----- ----- D A T A - H Y P E R P A R A M E T E R S
 
-        data_hps = self.data_hp_sampler.sample()
-
-        # ----- ----- F E A T U R E S
-        xs = torch.randn(
-            size=(
-                self.training_config.batch_size,
-                data_hps.samples,
-                data_hps.features,
-            ),
-            device=self.rank,
-            generator=self.random_generator,
+        data_hps_list = [
+            self.data_hp_sampler.sample()
+            for _ in range(self.training_config.batch_size)
+        ]
+        max_sampled_sequence_length = max(
+            [data_hps.samples for data_hps in data_hps_list],
         )
 
-        # ----- ----- M O D E L
-        model = self._generate_mlp(data_hps=data_hps)
+        xs_list = []
+        ys_list = []
+        threshold_list = []
+        weights_list = []
+        t_list = []
 
-        # ----- ----- L A B E L S
-        ys_regression = model(xs).squeeze(-1)  # batch_size, sequence_length
+        for _mlp_i, data_hps in enumerate(data_hps_list):
+            # ----- ----- F E A T U R E S
+            xs = torch.randn(
+                size=(
+                    1,  # Was batch size
+                    data_hps.samples,
+                    data_hps.features,
+                ),
+                device=self.rank,
+                generator=self.random_generator,
+            )
+            # pad xs to max features and max sampled sequence_length
+            if data_hps.features < self.data_config.features.max:
+                xs = nn.functional.pad(
+                    xs,
+                    pad=(0, self.data_config.features.max - data_hps.features),
+                    mode="constant",
+                    value=0,
+                )
+            if data_hps.samples < max_sampled_sequence_length:
+                xs = nn.functional.pad(
+                    xs,
+                    pad=(0, 0, 0, max_sampled_sequence_length - data_hps.samples),
+                    mode="constant",
+                    value=0,
+                )
 
-        # to make sure, that each class is represented enough times
-        quantile_25 = torch.quantile(ys_regression, 0.25, dim=1)
-        quantile_75 = torch.quantile(ys_regression, 0.75, dim=1)
+            # ----- ----- M O D E L
+            model = self._generate_mlp(data_hps=data_hps)
 
-        # threshold is uniformly sampled between 25% and 75% quantile
-        threshold = quantile_25 + torch.rand(
-            size=(self.training_config.batch_size,),
-            device=self.rank,
-        ) * (quantile_75 - quantile_25)
+            # ----- ----- L A B E L S
+            ys_regression = model(xs).squeeze(-1)  # batch_size, sequence_length
 
-        # use threshold to create binary labels
-        ys_labels = (ys_regression > threshold.unsqueeze(-1)).long()
+            # to make sure, that each class is represented enough times
+            quantile_25 = torch.quantile(ys_regression, 0.25, dim=1)
+            quantile_75 = torch.quantile(ys_regression, 0.75, dim=1)
 
-        final_batch = make_dotdict_recursive(
-            {
-                "xs": xs,
-                "ys_labels": ys_labels,
-                "data_hps": data_hps,
-                "model": model,
-            },
-        )
+            # threshold is uniformly sampled between 25% and 75% quantile
+            threshold = quantile_25 + torch.rand(
+                size=(xs.shape[0],),
+                device=self.rank,
+            ) * (quantile_75 - quantile_25)
+
+            # use threshold to create binary labels
+            ys_labels = (ys_regression > threshold.unsqueeze(-1)).long()
+
+            total_weights = self._extract_model_weights(model=model)
+
+            # ----- ----- A P P E N D
+            xs_list.append(xs)
+            ys_list.append(ys_labels)
+            threshold_list.append(threshold)
+            weights_list.append(total_weights)
+            t_list.append(data_hps.t)
+
+        # ----- ----- C O N V E R T - T O - T E N S O R
+        xs_tensor = torch.cat(xs_list, dim=0)
+        ys_tensor = torch.cat(ys_list, dim=0)
+        threshold_tensor = torch.cat(threshold_list, dim=0)
+        weights_tensor = torch.cat(weights_list, dim=0)
+        t_tensor = torch.tensor(t_list, device=self.rank)
 
         end_time = time.monotonic_ns()
-        time_millis = (end_time - start_time) / 1e6
-        print(f"Data Generation Time: {time_millis:.2f} ms")
-        return final_batch
+        (end_time - start_time) / 1e6
+        print(f"Time to generate batch: {(end_time - start_time) / 1e6:.2f} ms")  #   noqa: T201
+
+        return make_dotdict_recursive(
+            {
+                "xs": xs_tensor,
+                "ys": ys_tensor,
+                "threshold": threshold_tensor,
+                "weights": weights_tensor,
+                "data_hps": data_hps_list,
+                "t": t_tensor,
+            },
+        )
 
     def _generate_mlp(self, data_hps):
         activation = get_activation(self.mlp_config.activation_str)
@@ -125,7 +169,9 @@ class TrainingDataset(IterableDataset):
 
         # Define layers with specified initialization
         for i in range(self.mlp_config.num_layers):
-            in_features = data_hps.features if i == 0 else self.mlp_config.hidden_dim
+            in_features = (
+                self.data_config.features.max if i == 0 else self.mlp_config.hidden_dim
+            )
             out_features = (
                 self.mlp_config.output_dim
                 if i == self.mlp_config.num_layers - 1
@@ -142,6 +188,10 @@ class TrainingDataset(IterableDataset):
             if self.mlp_config.bias:
                 torch.nn.init.uniform_(layer.bias, -1, 1)
 
+            # !important! zero out all "exceeding input neurons" in the first layer (only weight matrix)
+            if i == 0 and self.data_config.features.max > data_hps.features:
+                layer.weight.data[:, data_hps.features :].zero_()
+
             # Append layer with optional activation
             layers.append(
                 layer
@@ -149,3 +199,37 @@ class TrainingDataset(IterableDataset):
                 else nn.Sequential(layer, activation()),
             )
         return nn.Sequential(*layers)
+
+    def _extract_model_weights(self, model: nn.Module):
+        size = (
+            self.mlp_config.hidden_dim + 1,
+            1
+            + self.data_config.features.max
+            + (self.mlp_config.hidden_dim * (self.mlp_config.num_layers - 2))
+            + 1,
+        )
+
+        total_weights = torch.zeros(size=size)
+
+        # first layer # double 0 index, because nested sequentials!
+        total_weights[:-1, 0] = model[0][0].bias.data
+        total_weights[:-1, 1 : self.data_config.features.max + 1] = model[0][
+            0
+        ].weight.data
+
+        # hidden layers
+
+        for i in range(self.mlp_config.num_layers - 2):
+            column_start = (
+                1 + self.data_config.features.max + i * self.mlp_config.hidden_dim
+            )
+            column_end = (
+                1 + self.data_config.features.max + (i + 1) * self.mlp_config.hidden_dim
+            )
+            total_weights[:-1, column_start:column_end] = model[i + 1][0].weight.data
+            total_weights[-1, column_start:column_end] = model[i + 1][0].bias.data
+
+        # Finish the puzzle by transposing last layer weights
+        total_weights[:-1, -1:] = model[-1].weight.data.T
+        total_weights[-1, -1] = model[-1].bias.data
+        return total_weights
