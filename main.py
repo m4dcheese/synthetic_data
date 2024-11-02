@@ -27,6 +27,8 @@ def main():
         weight_projection=WeightProjection(
             input_dim=1,
             hidden_dim=config.cfm.weight_projection.hidden_dim,
+            data_config=config.data,
+            mlp_config=config.mlp,
         ),
         encoder=TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(

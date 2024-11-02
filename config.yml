@@ -24,7 +24,7 @@ scm:
 # ----- ----- ----- ----- T R A I N I N G
 training: 
   total_iterations: 100
-  batch_size: 64
+  batch_size: 32
   mlps_per_batch: 16 # needs to be a factor of batch_size
   batches_per_iteration: 100
   num_data_workers: 0
@@ -71,7 +71,7 @@ cfm:
         dim_feedforward: 2048
         dropout: 0.1
         activation_str: relu
-        layer_norm_eps: 1e-5
+        layer_norm_eps: 0.00001
         batch_first: true
         norm_first: false
         bias: true
@@ -84,7 +84,7 @@ cfm:
         dim_feedforward: 2048
         dropout: 0.1
         activation_str: relu
-        layer_norm_eps: 1e-5
+        layer_norm_eps: 0.00001
         batch_first: true
         norm_first: false
         bias: true

@@ -19,7 +19,8 @@ class CFM(nn.Module):
 
     def forward(self, xs, ys, ts, weights):
         data = self.data_projection(xs=xs, ys=ys, ts=ts)
+        encoded = self.encoder(data)
 
-        weights = self.weight_projection()
-        encoded = self.encoder(data, weights)
-        return self.decoder(encoded, weights)
+        weights = self.weight_projection(weights=weights)
+        decoded = self.decoder(tgt=weights, memory=encoded)
+        return decoded

@@ -27,7 +27,7 @@ def train(
 
             optimizer.zero_grad()
 
-            output = cfm(xs=xs, ys=ys, ts=ts)
+            output = cfm(xs=xs, ys=ys, ts=ts, weights=weights)
 
             loss = loss_fn(output, batch["y"])
             loss.backward()
