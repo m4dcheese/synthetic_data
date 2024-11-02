@@ -31,7 +31,13 @@ class DataHyperparameterSampler:
                     self.data_config.samples.min,
                     self.data_config.samples.max,
                 ),
-                self._uniform_or_constant("t", 0, 1),
+                # self._uniform_or_constant("t", 0, 1),
+                # make t a float between 0 and 1
+                CSH.UniformFloatHyperparameter(
+                    name="t",
+                    lower=0,
+                    upper=1,
+                ),
             ]
         )
 

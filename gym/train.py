@@ -21,11 +21,14 @@ def train(
         for _batch_i, batch in enumerate(dataloader):
             xs = batch.xs.to(device)
             ys = batch.ys.to(device)
+            ts = batch.t.to(device)
+            weights = batch.weights.to(device)
             data_hps = batch.data_hps
 
             optimizer.zero_grad()
-            batch = {k: v.to(device) for k, v in batch.items()}
-            output = cfm(batch)
+
+            output = cfm(xs=xs, ys=ys, ts=ts)
+
             loss = loss_fn(output, batch["y"])
             loss.backward()
             optimizer.step()

@@ -145,7 +145,7 @@ class TrainingDataset(IterableDataset):
         xs_tensor = torch.cat(xs_list, dim=0)
         ys_tensor = torch.cat(ys_list, dim=0)
         threshold_tensor = torch.cat(threshold_list, dim=0)
-        weights_tensor = torch.cat(weights_list, dim=0)
+        weights_tensor = torch.stack(weights_list, dim=0)
         t_tensor = torch.tensor(t_list, device=self.rank)
 
         end_time = time.monotonic_ns()
