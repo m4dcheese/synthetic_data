@@ -18,7 +18,7 @@ class DataProjection(nn.Module):
         ts = ts.float()  # batch_size
 
         # ts should be repeated to match the sequence length of xs
-        ts = ts.unsqueeze(-1).unsqueeze(-1)
+
         ts = ts.repeat(1, xs.shape[1], 1)
 
         # Ensure ys has the shape (batch_size, sequence_length, 1)

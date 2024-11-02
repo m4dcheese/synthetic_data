@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import random
+
+import numpy as np
+import torch
 from torch import nn, optim
 
 
@@ -60,3 +64,16 @@ def get_number_parameters(module: nn.Module):
 
     # Return the formatted output string
     return params_str
+
+
+def set_global_seed(seed):
+    """Set the seed for all necessary libraries to ensure reproducibility."""
+    # Set the seed for numpy
+    np.random.seed(seed)
+    random.seed(seed)
+    # Pandas uses numpy for its randomness, so setting the numpy seed is usually enough.
+    # If using random functions from pandas that do not utilize numpy, set the seed directly if possible.
+    # Set the seed for PyTorch
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)

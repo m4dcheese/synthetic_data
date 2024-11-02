@@ -10,12 +10,14 @@ class CFM(nn.Module):
         weight_projection: nn.Module,
         encoder: nn.Module,
         decoder: nn.Module,
+        prediction_head: nn.Module,
     ):
         super().__init__()
         self.data_projection = data_projection
         self.weight_projection = weight_projection
         self.encoder = encoder
         self.decoder = decoder
+        self.prediction_head = prediction_head
 
     def forward(self, xs, ys, ts, weights):
         data = self.data_projection(xs=xs, ys=ys, ts=ts)
@@ -23,4 +25,4 @@ class CFM(nn.Module):
 
         weights = self.weight_projection(weights=weights)
         decoded = self.decoder(tgt=weights, memory=encoded)
-        return decoded
+        return self.prediction_head(decoded)

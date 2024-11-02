@@ -15,7 +15,8 @@ from torch.nn import (
     TransformerEncoderLayer,
 )
 from torch.utils.data import DataLoader
-from utils import get_criterion, get_number_parameters, get_optimizer
+from utils import get_criterion, get_optimizer, set_global_seed
+from models.prediction_mlp import PredictionMLP
 
 
 def main():
@@ -58,6 +59,12 @@ def main():
             ),
             num_layers=config.cfm.transformer.decoder.num_layers,
         ),
+        prediction_head=PredictionMLP(
+            prediction_mlp_config=config.cfm.prediction_mlp,
+            transformer_decoder_config=config.cfm.transformer.decoder,
+            data_config=config.data,
+            mlp_config=config.mlp,
+        ),
     )
 
     rank = "cpu"  # TODO MultiGPU Training
@@ -94,8 +101,6 @@ def main():
     loss_fn = get_criterion(criterion_str=config.criterion.criterion_str)()
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    print(f"Total Parameters CFM Model: {get_number_parameters(cfm_model)}")
-
     cfm_model = train(
         cfm=cfm_model,
         loss_fn=loss_fn,
@@ -104,8 +109,8 @@ def main():
         training_config=config.training,
         device=device,
     )
-    print("")
 
 
 if __name__ == "__main__":
+    set_global_seed(42)
     main()

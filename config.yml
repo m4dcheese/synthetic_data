@@ -25,10 +25,10 @@ scm:
 training: 
   total_iterations: 100
   batch_size: 32
-  mlps_per_batch: 16 # needs to be a factor of batch_size
+  mlps_per_batch: 4 # needs to be a factor of batch_size
   batches_per_iteration: 100
   num_data_workers: 0
-
+  sigma: 0.00001
 # ----- ----- ----- ----- O P T I M I Z E R
 optimizer:
   optimizer_str: "AdamW"
@@ -37,7 +37,7 @@ optimizer:
 
 # ----- ----- ----- ----- C R I T E R I O N
 criterion:
-  criterion_str: "bce"
+  criterion_str: "mse"
 
 # ----- ----- ----- ----- D A T A
 data: 
@@ -96,3 +96,11 @@ cfm:
   weight_projection: 
     num_layers: 1
     hidden_dim: 512
+
+  prediction_mlp:
+    num_layers: 2
+    hidden_dim: 512
+    # output_dim: 1
+    activation_str: relu
+    bias: true
+

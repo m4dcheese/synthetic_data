@@ -49,7 +49,6 @@ class TrainingDataset(IterableDataset):
                 / max(1, self.num_data_workers),
             ),
         )
-
         for _ in range(num_batches):
             yield self.generate_batch_of_data()
 
@@ -57,7 +56,8 @@ class TrainingDataset(IterableDataset):
         # This function is called after the __iter__ function has been called
         # and the data has been generated. This function is called on the main process
         # only use last element from list, as this already contains the batch
-        return batch[-1]
+        last_element = make_dotdict_recursive(batch[-1])
+        return last_element
 
     def _create_seed(self, gpu_rank, pid):
         # Combine the gpu_rank and pid using a bitwise OR operation
@@ -152,16 +152,14 @@ class TrainingDataset(IterableDataset):
         (end_time - start_time) / 1e6
         print(f"Time to generate batch: {(end_time - start_time) / 1e6:.2f} ms")  #   noqa: T201
 
-        return make_dotdict_recursive(
-            {
-                "xs": xs_tensor,
-                "ys": ys_tensor,
-                "threshold": threshold_tensor,
-                "weights": weights_tensor,
-                "data_hps": data_hps_list,
-                "t": t_tensor,
-            },
-        )
+        return {
+            "xs": xs_tensor.detach(),
+            "ys": ys_tensor.detach(),
+            "threshold": threshold_tensor.detach(),
+            "weights": weights_tensor.detach(),
+            "data_hps": data_hps_list,
+            "t": t_tensor.detach(),
+        }
 
     def _generate_mlp(self, data_hps):
         activation = get_activation(self.mlp_config.activation_str)
