@@ -47,7 +47,7 @@ def train(
     device,
 ):
     cfm.to(device)
-    sigma = training_config.sigma
+
     for _iteration_i in tqdm(range(training_config.total_iterations)):
         for _batch_i, batch in enumerate(dataloader):
             xs = batch.xs.to(device)
@@ -58,9 +58,15 @@ def train(
             noise = sample_z1(z0_shape=weights.shape, mean=0, std=1).to(device)
 
             z0, z1 = match_closest_samples(z0=weights, z1=noise)
-            z_t = generate_trajectory(z0=z0, z1=z1, t=ts, sigma=sigma).to(device)
 
-            target = ((1 - 1e-5) * z1 - z0).to(device)
+            z_t = generate_trajectory(
+                z0=z0,
+                z1=z1,
+                t=ts,
+                sigma=training_config.sigma,
+            ).to(device)
+
+            target = ((1 - training_config.sigma) * z1 - z0).to(device)
 
             optimizer.zero_grad()
 

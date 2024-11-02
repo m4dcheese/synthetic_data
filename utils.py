@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 import random
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -77,3 +79,19 @@ def set_global_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def get_experiment_path(base_path: str):
+    Path(base_path).mkdir(parents=True, exist_ok=True)
+    # create new sub dir with structure: base_path/DD_MM_YYYY /run_i
+    # where run_i is the first integer that makes the path unique
+    date_str = datetime.now().strftime("%d-%m-%Y")
+    run_i = 0
+    while True:
+        experiment_path = Path(base_path) / date_str / f"run_{run_i}"
+        if not experiment_path.exists():
+            experiment_path.mkdir(parents=True, exist_ok=False)
+            break
+        run_i += 1
+
+    return experiment_path

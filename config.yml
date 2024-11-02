@@ -104,3 +104,6 @@ cfm:
     activation_str: relu
     bias: true
 
+
+results:
+  base_path: "results/"

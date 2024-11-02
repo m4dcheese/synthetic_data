@@ -7,6 +7,7 @@ from data.training_dataset import TrainingDataset
 from gym.train import train
 from models.cfm import CFM
 from models.data_projection import DataProjection
+from models.prediction_mlp import PredictionMLP
 from models.weight_projection import WeightProjection
 from torch.nn import (
     TransformerDecoder,
@@ -15,11 +16,11 @@ from torch.nn import (
     TransformerEncoderLayer,
 )
 from torch.utils.data import DataLoader
-from utils import get_criterion, get_optimizer, set_global_seed
-from models.prediction_mlp import PredictionMLP
+from utils import get_criterion, get_experiment_path, get_optimizer, set_global_seed
 
 
 def main():
+    experiment_path = get_experiment_path(base_path=config.results.base_path)
     cfm_model = CFM(
         data_projection=DataProjection(
             input_dim=config.data.features.max,
