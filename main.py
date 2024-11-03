@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import torch
+import torch.multiprocessing as mp
 from config import config
-from data.data_hyperparameter_sampler import DataHyperparameterSampler
-from data.training_dataset import TrainingDataset
 from gym.train import train
 from models.cfm import CFM
 from models.data_projection import DataProjection
@@ -15,12 +13,12 @@ from torch.nn import (
     TransformerEncoder,
     TransformerEncoderLayer,
 )
-from torch.utils.data import DataLoader
-from utils import get_criterion, get_experiment_path, get_optimizer, set_global_seed
+from utils import get_criterion, get_experiment_path, set_global_seed
 
 
 def main():
     experiment_path = get_experiment_path(base_path=config.results.base_path)
+
     cfm_model = CFM(
         data_projection=DataProjection(
             input_dim=config.data.features.max,
@@ -68,48 +66,58 @@ def main():
         ),
     )
 
-    rank = "cpu"  # TODO MultiGPU Training
-    world_size = 1
-
-    dataset = TrainingDataset(
-        data_hp_sampler=DataHyperparameterSampler(config.data),
-        training_config=config.training,
-        data_config=config.data,
-        mlp_config=config.mlp,
-        rank=rank,
-        worldsize=world_size,
-        num_data_workers=config.training.num_data_workers,
-    )
-
-    # "When both batch_size and batch_sampler are None (default value for batch_sampler
-    # is already None), automatic batching is disabled." (https://pytorch.org/docs/stable/data.html)
-    data_loader = DataLoader(
-        dataset=dataset,
-        shuffle=False,
-        collate_fn=dataset.collate_fn,
-        worker_init_fn=dataset.worker_init_fn,
-        num_workers=config.training.num_data_workers,
-        prefetch_factor=10 if config.training.num_data_workers > 0 else None,
-        persistent_workers=config.training.num_data_workers > 0,
-    )
-
-    optimizer = get_optimizer(optimizer_str=config.optimizer.optimizer_str)(
-        cfm_model.parameters(),
-        lr=config.optimizer.lr,
-        weight_decay=config.optimizer.weight_decay,
-    )
-
     loss_fn = get_criterion(criterion_str=config.criterion.criterion_str)()
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    cfm_model = train(
-        cfm=cfm_model,
-        loss_fn=loss_fn,
-        optimizer=optimizer,
-        dataloader=data_loader,
-        training_config=config.training,
-        device=device,
-    )
+    if config.training.world_size > 1:
+        mp.spawn(
+            train,
+            args=(
+                config.training.world_size,
+                cfm_model,
+                loss_fn,
+                # Configurations
+                config.training,
+                config.optimizer,
+                config.data,
+                config.mlp,
+                # Rank & World Size
+                config.training.world_size,
+                # Path to save the model
+                experiment_path,
+            ),
+            nprocs=config.training.world_size,
+            join=True,
+        )
+    elif config.training.world_size == 1:
+        cfm_model = train(
+            cfm_model=cfm_model,
+            loss_fn=loss_fn,
+            # Configurations
+            training_config=config.training,
+            optimizer_config=config.optimizer,
+            data_config=config.data,
+            mlp_config=config.mlp,
+            # Rank & World Size
+            world_size=config.training.world_size,
+            rank="cuda:0",
+            # Path to save the model
+            save_path=experiment_path,
+        )
+    else:
+        cfm_model = train(
+            cfm_model=cfm_model,
+            loss_fn=loss_fn,
+            # Configurations
+            training_config=config.training,
+            optimizer_config=config.optimizer,
+            data_config=config.data,
+            mlp_config=config.mlp,
+            # Rank & World Size
+            world_size=config.training.world_size,
+            rank="cpu",
+            # Path to save the model
+            save_path=experiment_path,
+        )
 
 
 if __name__ == "__main__":

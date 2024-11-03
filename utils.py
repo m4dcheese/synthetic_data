@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+import os
+import pickle
 import random
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn, optim
+from torch.distributed import destroy_process_group, init_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+from config import config
 
 
 def get_optimizer(optimizer_str: str):
@@ -95,3 +100,29 @@ def get_experiment_path(base_path: str):
         run_i += 1
 
     return experiment_path
+
+
+def ddp_setup(rank, world_size):
+    if world_size > 1:
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "25323"
+        init_process_group("nccl", rank=rank, world_size=world_size)
+
+
+def ddp_cleanup(world_size):
+    if world_size > 1:
+        destroy_process_group()
+
+
+def save_trained_model(model: nn.Module, optimizer, save_path):
+    path = f"{save_path}/model_weights.pth"
+
+    module_ = model.module if isinstance(model, DDP) else model
+
+    checkpoint = {
+        "config": config,
+        "model_state_dict": module_.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+    }
+
+    torch.save(checkpoint, path)

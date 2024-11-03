@@ -10,7 +10,13 @@ if TYPE_CHECKING:
 
 import numpy as np
 import torch
+from data.data_hyperparameter_sampler import DataHyperparameterSampler
+from data.training_dataset import TrainingDataset
 from scipy.optimize import linear_sum_assignment
+from torch import nn
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from utils import ddp_cleanup, ddp_setup, get_optimizer
 
 
 def sample_z1(z0_shape, mean=0, std=1):
@@ -39,23 +45,72 @@ def match_closest_samples(z0, z1):
 
 
 def train(
-    cfm: nn.Module,
-    dataloader: DataLoader,
+    cfm_model: nn.Module,
     loss_fn,
-    optimizer,
+    # Configurations
     training_config,
-    device,
+    optimizer_config,
+    data_config,
+    mlp_config,
+    # Rank & Worldsize
+    world_size,
+    rank,
+    # Path to save the model
+    save_path,
 ):
-    cfm.to(device)
+    # First Setup the Distributed Data Parallel
+    ddp_setup(rank=rank, world_size=world_size)
+    cfm_model.to(rank)
+
+    if world_size > 1:
+        # find unused parameters=True Bug: https://stackoverflow.com/questions/68000761/pytorch-ddp-finding-the-cause-of-expected-to-mark-a-variable-ready-only-once
+        cfm_model = DDP(
+            cfm_model,
+            device_ids=[rank],
+            find_unused_parameters=False,
+            broadcast_buffers=False,
+        )
+
+    # initialize optimizer with model parameters
+    optimizer = get_optimizer(optimizer_config.optimizer_str)(
+        cfm_model.parameters(),
+        lr=optimizer_config.lr,
+        weight_decay=optimizer_config.weight_decay,
+    )
+
+    # Dataset and DataLoader
+    dataset = TrainingDataset(
+        data_hp_sampler=DataHyperparameterSampler(data_config),
+        training_config=training_config,
+        data_config=data_config,
+        mlp_config=mlp_config,
+        rank=rank,
+        worldsize=training_config.world_size,
+        num_data_workers=training_config.num_data_workers,
+    )
+
+    # "When both batch_size and batch_sampler are None (default value for batch_sampler
+    # is already None), automatic batching is disabled." (https://pytorch.org/docs/stable/data.html)
+    dataloader = DataLoader(
+        dataset=dataset,
+        shuffle=False,
+        collate_fn=dataset.collate_fn,
+        worker_init_fn=dataset.worker_init_fn,
+        num_workers=training_config.num_data_workers,
+        prefetch_factor=training_config.data_prefetch_factor
+        if training_config.num_data_workers > 0
+        else None,
+        persistent_workers=training_config.num_data_workers > 0,
+    )
 
     for _iteration_i in tqdm(range(training_config.total_iterations)):
         for _batch_i, batch in enumerate(dataloader):
-            xs = batch.xs.to(device)
-            ys = batch.ys.to(device)
-            ts = batch.t.to(device).reshape(-1, 1, 1)
+            xs = batch.xs.to(rank)
+            ys = batch.ys.to(rank)
+            ts = batch.t.to(rank).reshape(-1, 1, 1)
 
-            weights = batch.weights.to(device)
-            noise = sample_z1(z0_shape=weights.shape, mean=0, std=1).to(device)
+            weights = batch.weights.to(rank)
+            noise = sample_z1(z0_shape=weights.shape, mean=0, std=1).to(rank)
 
             z0, z1 = match_closest_samples(z0=weights, z1=noise)
 
@@ -64,16 +119,25 @@ def train(
                 z1=z1,
                 t=ts,
                 sigma=training_config.sigma,
-            ).to(device)
+            ).to(rank)
 
-            target = ((1 - training_config.sigma) * z1 - z0).to(device)
+            # target is not the new position but the difference between the new position and the old position
+            target = ((1 - training_config.sigma) * z1 - z0).to(rank)
 
-            optimizer.zero_grad()
-
-            v = cfm(xs=xs, ys=ys, ts=ts, weights=z_t)
+            v = cfm_model(xs=xs, ys=ys, ts=ts, weights=z_t)
 
             loss = loss_fn(v, target)
+
+            optimizer.zero_grad()
             loss.backward()
+            # Update the model parameters across all GPUs (triggers the all-reduce)
             optimizer.step()
 
-    return cfm
+    ddp_cleanup(world_size=world_size)
+
+    from utils import save_trained_model
+
+    if rank in ["cpu", "cuda:0"]:
+        save_trained_model(model=cfm_model, optimizer=optimizer, save_path=save_path)
+
+    return cfm_model
