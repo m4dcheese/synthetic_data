@@ -7,7 +7,7 @@ import torch
 from config import make_dotdict_recursive
 from torch import nn
 from torch.utils.data import IterableDataset
-from utils import get_activation
+from models.target_mlp import TargetMLP
 
 
 class TrainingDataset(IterableDataset):
@@ -86,7 +86,7 @@ class TrainingDataset(IterableDataset):
         weights_list = []
         t_list = []
 
-        for _mlp_i, data_hps in enumerate(data_hps_list):
+        for _, data_hps in enumerate(data_hps_list):
             # ----- ----- F E A T U R E S
             xs = torch.randn(
                 size=(
@@ -114,7 +114,7 @@ class TrainingDataset(IterableDataset):
                 )
 
             # ----- ----- M O D E L
-            model = self._generate_mlp(data_hps=data_hps)
+            model = TargetMLP(in_features=data_hps.features)
 
             # ----- ----- L A B E L S
             ys_regression = model(xs).squeeze(-1)  # batch_size, sequence_length
@@ -132,7 +132,7 @@ class TrainingDataset(IterableDataset):
             # use threshold to create binary labels
             ys_labels = (ys_regression > threshold.unsqueeze(-1)).long()
 
-            total_weights = self._extract_model_weights(model=model)
+            total_weights = model.get_compact_form()
 
             # ----- ----- A P P E N D
             xs_list.append(xs)
@@ -161,73 +161,73 @@ class TrainingDataset(IterableDataset):
             "t": t_tensor.detach(),
         }
 
-    def _generate_mlp(self, data_hps):
-        activation = get_activation(self.mlp_config.activation_str)
-        layers = []
+    # def _generate_mlp(self, data_hps):
+    #     activation = get_activation(self.mlp_config.activation_str)
+    #     layers = []
 
-        # Define layers with specified initialization
-        for i in range(self.mlp_config.num_layers):
-            in_features = (
-                self.data_config.features.max if i == 0 else self.mlp_config.hidden_dim
-            )
-            out_features = (
-                self.mlp_config.output_dim
-                if i == self.mlp_config.num_layers - 1
-                else self.mlp_config.hidden_dim
-            )
+    #     # Define layers with specified initialization
+    #     for i in range(self.mlp_config.num_layers):
+    #         in_features = (
+    #             self.data_config.features.max if i == 0 else self.mlp_config.hidden_dim
+    #         )
+    #         out_features = (
+    #             self.mlp_config.output_dim
+    #             if i == self.mlp_config.num_layers - 1
+    #             else self.mlp_config.hidden_dim
+    #         )
 
-            # Initialize layer and apply uniform weight initialization
-            layer = nn.Linear(
-                in_features,
-                out_features,
-                bias=self.mlp_config.bias,
-            )
-            torch.nn.init.uniform_(layer.weight, -1, 1)
-            if self.mlp_config.bias:
-                torch.nn.init.uniform_(layer.bias, -1, 1)
+    #         # Initialize layer and apply uniform weight initialization
+    #         layer = nn.Linear(
+    #             in_features,
+    #             out_features,
+    #             bias=self.mlp_config.bias,
+    #         )
+    #         torch.nn.init.uniform_(layer.weight, -1, 1)
+    #         if self.mlp_config.bias:
+    #             torch.nn.init.uniform_(layer.bias, -1, 1)
 
-            # !important! zero out all "exceeding input neurons" in the first layer (only weight matrix)
-            if i == 0 and self.data_config.features.max > data_hps.features:
-                layer.weight.data[:, data_hps.features :].zero_()
+    #         # !important! zero out all "exceeding input neurons" in the first layer (only weight matrix)
+    #         if i == 0 and self.data_config.features.max > data_hps.features:
+    #             layer.weight.data[:, data_hps.features :].zero_()
 
-            # Append layer with optional activation
-            layers.append(
-                layer
-                if i == self.mlp_config.num_layers - 1
-                else nn.Sequential(layer, activation()),
-            )
-        return nn.Sequential(*layers)
+    #         # Append layer with optional activation
+    #         layers.append(
+    #             layer
+    #             if i == self.mlp_config.num_layers - 1
+    #             else nn.Sequential(layer, activation()),
+    #         )
+    #     return nn.Sequential(*layers)
 
-    def _extract_model_weights(self, model: nn.Module):
-        size = (
-            self.mlp_config.hidden_dim + 1,
-            1
-            + self.data_config.features.max
-            + (self.mlp_config.hidden_dim * (self.mlp_config.num_layers - 2))
-            + 1,
-        )
+    # def _extract_model_weights(self, model: nn.Module):
+    #     size = (
+    #         self.mlp_config.hidden_dim + 1,
+    #         1
+    #         + self.data_config.features.max
+    #         + (self.mlp_config.hidden_dim * (self.mlp_config.num_layers - 2))
+    #         + 1,
+    #     )
 
-        total_weights = torch.zeros(size=size)
+    #     total_weights = torch.zeros(size=size)
 
-        # first layer # double 0 index, because nested sequentials!
-        total_weights[:-1, 0] = model[0][0].bias.data
-        total_weights[:-1, 1 : self.data_config.features.max + 1] = model[0][
-            0
-        ].weight.data
+    #     # first layer # double 0 index, because nested sequentials!
+    #     total_weights[:-1, 0] = model[0][0].bias.data
+    #     total_weights[:-1, 1 : self.data_config.features.max + 1] = model[0][
+    #         0
+    #     ].weight.data
 
-        # hidden layers
+    #     # hidden layers
 
-        for i in range(self.mlp_config.num_layers - 2):
-            column_start = (
-                1 + self.data_config.features.max + i * self.mlp_config.hidden_dim
-            )
-            column_end = (
-                1 + self.data_config.features.max + (i + 1) * self.mlp_config.hidden_dim
-            )
-            total_weights[:-1, column_start:column_end] = model[i + 1][0].weight.data
-            total_weights[-1, column_start:column_end] = model[i + 1][0].bias.data
+    #     for i in range(self.mlp_config.num_layers - 2):
+    #         column_start = (
+    #             1 + self.data_config.features.max + i * self.mlp_config.hidden_dim
+    #         )
+    #         column_end = (
+    #             1 + self.data_config.features.max + (i + 1) * self.mlp_config.hidden_dim
+    #         )
+    #         total_weights[:-1, column_start:column_end] = model[i + 1][0].weight.data
+    #         total_weights[-1, column_start:column_end] = model[i + 1][0].bias.data
 
-        # Finish the puzzle by transposing last layer weights
-        total_weights[:-1, -1:] = model[-1].weight.data.T
-        total_weights[-1, -1] = model[-1].bias.data
-        return total_weights
+    #     # Finish the puzzle by transposing last layer weights
+    #     total_weights[:-1, -1:] = model[-1].weight.data.T
+    #     total_weights[-1, -1] = model[-1].bias.data
+    #     return total_weights
