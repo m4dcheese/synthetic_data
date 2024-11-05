@@ -150,7 +150,6 @@ class TrainingDataset(IterableDataset):
 
         end_time = time.monotonic_ns()
         (end_time - start_time) / 1e6
-        print(f"Time to generate batch: {(end_time - start_time) / 1e6:.2f} ms")  #   noqa: T201
 
         return {
             "xs": xs_tensor.detach(),
