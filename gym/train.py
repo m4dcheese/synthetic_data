@@ -104,6 +104,7 @@ def train(
     )
 
     for _iteration_i in tqdm(range(training_config.total_iterations)):
+        iteration_loss = []
         for _batch_i, batch in enumerate(dataloader):
             xs = batch.xs.to(rank)
             ys = batch.ys.to(rank)
@@ -132,6 +133,11 @@ def train(
             loss.backward()
             # Update the model parameters across all GPUs (triggers the all-reduce)
             optimizer.step()
+
+            # loss tracking
+            iteration_loss.append(loss.item())
+
+        print(f"Iteration: {_iteration_i} - Loss: {np.mean(iteration_loss)}")
 
     ddp_cleanup(world_size=world_size)
 
