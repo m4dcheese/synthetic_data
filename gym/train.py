@@ -16,7 +16,7 @@ from scipy.optimize import linear_sum_assignment
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
-from utils import ddp_cleanup, ddp_setup, get_optimizer
+from utils import ddp_cleanup, ddp_setup, get_optimizer, save_trained_model
 
 
 def sample_z1(z0_shape, mean=0, std=1):
@@ -134,8 +134,6 @@ def train(
             optimizer.step()
 
     ddp_cleanup(world_size=world_size)
-
-    from utils import save_trained_model
 
     if rank in ["cpu", "cuda:0"]:
         save_trained_model(model=cfm_model, optimizer=optimizer, save_path=save_path)
