@@ -7,6 +7,7 @@ from models.cfm import CFM
 from models.cfm_data_projection import DataProjection
 from models.cfm_prediction_head import PredictionHead
 from models.cfm_weight_projection import WeightProjection
+from models.positional_encoding import PositionalEncoding
 from torch.nn import (
     TransformerDecoder,
     TransformerDecoderLayer,
@@ -26,6 +27,11 @@ def main():
         ),
         weight_projection=WeightProjection(
             hidden_dim=config.cfm.weight_projection.hidden_dim,
+            positional_encoding=PositionalEncoding(
+                d_model=config.cfm.transformer.decoder.d_model,
+                dropout=config.cfm.positional_encoding.dropout,
+                max_len=config.data.samples.max,
+            ),
         ),
         encoder=TransformerEncoder(
             encoder_layer=TransformerEncoderLayer(

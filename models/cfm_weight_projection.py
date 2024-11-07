@@ -1,11 +1,14 @@
 from torch import nn
 
 from config import config
+from models.positional_encoding import PositionalEncoding
+
 
 class WeightProjection(nn.Module):
-    def __init__(self, hidden_dim):
+    def __init__(self, hidden_dim, positional_encoding: PositionalEncoding):
         super().__init__()
         self.hidden_dim = hidden_dim
+        self.positional_encoding = positional_encoding
 
         input_dim = (
             1
@@ -18,4 +21,5 @@ class WeightProjection(nn.Module):
         self.weight_projection = nn.Linear(input_dim, self.hidden_dim)
 
     def forward(self, weights):
-        return self.weight_projection(weights)
+        projected_weights = self.weight_projection(weights)
+        return self.positional_encoding(projected_weights)

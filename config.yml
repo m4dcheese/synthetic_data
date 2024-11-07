@@ -79,6 +79,9 @@ cfm:
     num_layers: 1
     hidden_dim: 512
 
+  positional_encoding: 
+    dropout: 0.1
+
   prediction_head:
     num_layers: 2
     hidden_dim: 512
