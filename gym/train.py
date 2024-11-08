@@ -1,47 +1,42 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from tqdm import tqdm
-
-if TYPE_CHECKING:
-    from torch import nn
-    from torch.utils.data import DataLoader
-
 import numpy as np
 import torch
 from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
 from scipy.optimize import linear_sum_assignment
 from torch import nn
-from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from utils import ddp_cleanup, ddp_setup, get_optimizer, save_trained_model
 
 
-def sample_z1(z0_shape, mean=0, std=1):
-    return torch.randn(z0_shape) * std + mean
+def reparam_normal(shape, mean=0, std=1):
+    """Sample from normal distribution with reparameterization trick."""
+    return torch.randn(shape) * std + mean
 
 
 def generate_trajectory(z0, z1, t, sigma):
+    """Linear interpolation between z0 and z1."""
     return (1 - t) * z0 + (sigma + (1 - sigma) * t) * z1
 
 
-def match_closest_samples(z0, z1):
-    batch_size = z0.shape[0]
+def match_closest_samples(z0: torch.Tensor, z1: torch.Tensor):
+    """Find best sample pairs to avoid intersecting trajecrories."""
     # Flatten the tensors to shape (batch_size, -1)
-    A_flat = z0.reshape(batch_size, -1)
-    B_flat = z1.reshape(batch_size, -1)
+    z0_flat = z0.flatten(start_dim=1)
+    z1_flat = z1.flatten(start_dim=1)
 
     # Compute the (batch_size, batch_size) distance matrix
-    D = np.linalg.norm(A_flat[:, None] - B_flat[None, :], axis=2)
+    D = np.linalg.norm(z0_flat[:, None] - z1_flat[None, :], axis=2)
 
     # Use the linear sum assignment algorithm to find the optimal assignment
-    row_ind, col_ind = linear_sum_assignment(D)
+    _, col_ind = linear_sum_assignment(D)
     # permute the rows of B to match the columns of A
-    B_matched = B_flat[col_ind]
-    B_matched = B_matched.reshape(z1.shape)
-    return z0, B_matched
+    b_matched = z1_flat[col_ind]
+    b_matched = b_matched.reshape(z1.shape)
+    return z0, b_matched
 
 
 def train(
@@ -58,13 +53,14 @@ def train(
     # Path to save the model
     save_path,
 ):
+    """Run the main training loop for conditional flow matching."""
     # First Setup the Distributed Data Parallel
     ddp_setup(rank=rank, world_size=world_size)
     cfm_model.to(rank)
 
     if world_size > 1:
         # find unused parameters=True Bug: https://stackoverflow.com/questions/68000761/pytorch-ddp-finding-the-cause-of-expected-to-mark-a-variable-ready-only-once
-        cfm_model = DDP(
+        cfm_model = DistributedDataParallel(
             cfm_model,
             device_ids=[rank],
             find_unused_parameters=False,
@@ -110,8 +106,10 @@ def train(
             ys = batch.ys.to(rank)
             ts = batch.t.to(rank).reshape(-1, 1, 1)
 
+
+
             weights = batch.weights.to(rank)
-            noise = sample_z1(z0_shape=weights.shape, mean=0, std=1).to(rank)
+            noise = reparam_normal(shape=weights.shape, mean=0, std=1).to(rank)
 
             z0, z1 = match_closest_samples(z0=weights, z1=noise)
 
@@ -122,7 +120,8 @@ def train(
                 sigma=training_config.sigma,
             ).to(rank)
 
-            # target is not the new position but the difference between the new position and the old position
+            # target is not the new position but the difference between the new
+            # position and the old position, regardless of t
             target = ((1 - training_config.sigma) * z1 - z0).to(rank)
 
             v = cfm_model(xs=xs, ys=ys, ts=ts, weights=z_t)
