@@ -5,12 +5,13 @@ import time
 
 import torch
 from config import make_dotdict_recursive
+from models.target_mlp import TargetMLP
 from torch import nn
 from torch.utils.data import IterableDataset
-from models.target_mlp import TargetMLP
 
 
 class TrainingDataset(IterableDataset):
+    """Generate synthetic data of model-data combinations."""
     def __init__(
         self,
         data_hp_sampler,
@@ -22,6 +23,7 @@ class TrainingDataset(IterableDataset):
         worldsize,
         num_data_workers,
     ):
+        """Initialize Dataset generator class."""
         self.data_hp_sampler = data_hp_sampler
         self.training_config = training_config
         self.data_config = data_config
@@ -34,6 +36,7 @@ class TrainingDataset(IterableDataset):
         self.random_generator = None
 
     def worker_init_fn(self, worker_id):
+        """Initialize worker per GPU."""
         if self.random_generator is None:  # none is default value
             self.random_generator = torch.Generator()
             initial_seed = self._create_seed(
@@ -53,22 +56,24 @@ class TrainingDataset(IterableDataset):
             yield self.generate_batch_of_data()
 
     def collate_fn(self, batch):
-        # This function is called after the __iter__ function has been called
-        # and the data has been generated. This function is called on the main process
-        # only use last element from list, as this already contains the batch
-        last_element = make_dotdict_recursive(batch[-1])
-        return last_element
+        """This function is called after the __iter__ function has been called
+        and the data has been generated. This function is called on the main process
+        only use last element from list, as this already contains the batch.
+        """
+        return make_dotdict_recursive(batch[-1])
 
     def _create_seed(self, gpu_rank, pid):
-        # Combine the gpu_rank and pid using a bitwise OR operation
-        # seed: 32 bit integer such that the most significant 16 bits are the gpu_rank and the least significant 16 bits are the pid
+        """Combine the gpu_rank and pid using a bitwise OR operation.
+        seed: 32 bit integer such that the most significant 16 bits are the gpu_rank
+        and the least significant 16 bits are the pid.
+        """
         return gpu_rank | (pid << 16)
 
     def generate_batch_of_data(self):
-        # we are sampling data on the cpu, so that if we are pre-generating data
-        # the cuda-memory is not unnecessarily filled. We only want to have the data
-        # on the gpu, if we process it (after loading from dataloader).
-
+        """We are sampling data on the cpu, so that if we are pre-generating data
+        the cuda-memory is not unnecessarily filled. We only want to have the data
+        on the gpu, if we process it (after loading from dataloader).
+        """
         start_time = time.monotonic_ns()
         # ----- ----- D A T A - H Y P E R P A R A M E T E R S
 
@@ -82,6 +87,7 @@ class TrainingDataset(IterableDataset):
 
         xs_list = []
         ys_list = []
+        ys_raw_list = [] # Visualization and checking purpose
         threshold_list = []
         weights_list = []
         t_list = []
@@ -137,6 +143,7 @@ class TrainingDataset(IterableDataset):
             # ----- ----- A P P E N D
             xs_list.append(xs)
             ys_list.append(ys_labels)
+            ys_raw_list.append(ys_regression)
             threshold_list.append(threshold)
             weights_list.append(total_weights)
             t_list.append(data_hps.t)
@@ -144,6 +151,7 @@ class TrainingDataset(IterableDataset):
         # ----- ----- C O N V E R T - T O - T E N S O R
         xs_tensor = torch.cat(xs_list, dim=0)
         ys_tensor = torch.cat(ys_list, dim=0)
+        ys_raw_tensor = torch.cat(ys_raw_list, dim=0)
         threshold_tensor = torch.cat(threshold_list, dim=0)
         weights_tensor = torch.stack(weights_list, dim=0)
         t_tensor = torch.tensor(t_list, device=self.rank)
@@ -154,79 +162,9 @@ class TrainingDataset(IterableDataset):
         return {
             "xs": xs_tensor.detach(),
             "ys": ys_tensor.detach(),
+            "ys_raw": ys_raw_tensor.detach(),
             "threshold": threshold_tensor.detach(),
             "weights": weights_tensor.detach(),
             "data_hps": data_hps_list,
             "t": t_tensor.detach(),
         }
-
-    # def _generate_mlp(self, data_hps):
-    #     activation = get_activation(self.mlp_config.activation_str)
-    #     layers = []
-
-    #     # Define layers with specified initialization
-    #     for i in range(self.mlp_config.num_layers):
-    #         in_features = (
-    #             self.data_config.features.max if i == 0 else self.mlp_config.hidden_dim
-    #         )
-    #         out_features = (
-    #             self.mlp_config.output_dim
-    #             if i == self.mlp_config.num_layers - 1
-    #             else self.mlp_config.hidden_dim
-    #         )
-
-    #         # Initialize layer and apply uniform weight initialization
-    #         layer = nn.Linear(
-    #             in_features,
-    #             out_features,
-    #             bias=self.mlp_config.bias,
-    #         )
-    #         torch.nn.init.uniform_(layer.weight, -1, 1)
-    #         if self.mlp_config.bias:
-    #             torch.nn.init.uniform_(layer.bias, -1, 1)
-
-    #         # !important! zero out all "exceeding input neurons" in the first layer (only weight matrix)
-    #         if i == 0 and self.data_config.features.max > data_hps.features:
-    #             layer.weight.data[:, data_hps.features :].zero_()
-
-    #         # Append layer with optional activation
-    #         layers.append(
-    #             layer
-    #             if i == self.mlp_config.num_layers - 1
-    #             else nn.Sequential(layer, activation()),
-    #         )
-    #     return nn.Sequential(*layers)
-
-    # def _extract_model_weights(self, model: nn.Module):
-    #     size = (
-    #         self.mlp_config.hidden_dim + 1,
-    #         1
-    #         + self.data_config.features.max
-    #         + (self.mlp_config.hidden_dim * (self.mlp_config.num_layers - 2))
-    #         + 1,
-    #     )
-
-    #     total_weights = torch.zeros(size=size)
-
-    #     # first layer # double 0 index, because nested sequentials!
-    #     total_weights[:-1, 0] = model[0][0].bias.data
-    #     total_weights[:-1, 1 : self.data_config.features.max + 1] = model[0][
-    #         0
-    #     ].weight.data
-
-    #     # hidden layers
-
-    #     for i in range(self.mlp_config.num_layers - 2):
-    #         column_start = (
-    #             1 + self.data_config.features.max + i * self.mlp_config.hidden_dim
-    #         )
-    #         column_end = (
-    #             1 + self.data_config.features.max + (i + 1) * self.mlp_config.hidden_dim
-    #         )
-    #         total_weights[:-1, column_start:column_end] = model[i + 1][0].weight.data
-    #         total_weights[-1, column_start:column_end] = model[i + 1][0].bias.data
-
-    #     # Finish the puzzle by transposing last layer weights
-    #     total_weights[:-1, -1:] = model[-1].weight.data.T
-    #     total_weights[-1, -1] = model[-1].bias.data
-    #     return total_weights
