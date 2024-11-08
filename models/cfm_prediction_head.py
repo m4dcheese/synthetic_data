@@ -2,17 +2,13 @@ from __future__ import annotations
 
 from config import config
 from models.mlp import MLP
+from models.target_mlp import TargetMLP
 
 
 class PredictionHead(MLP):
 
     def __init__(self):
-        weight_output_dim = (
-            1
-            + config.data.features.max
-            + (config.target_mlp.hidden_dim * (config.target_mlp.num_layers - 2))
-            + 1
-        )
+        weight_output_dim = TargetMLP.compact_shape()[1]
 
         super().__init__(in_features=config.cfm.transformer.decoder.d_model,
                          out_features=weight_output_dim,
