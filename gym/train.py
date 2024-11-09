@@ -12,7 +12,6 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from utils import ddp_cleanup, ddp_setup, get_optimizer, save_trained_model
 
-
 def reparam_normal(shape, mean=0, std=1):
     """Sample from normal distribution with reparameterization trick."""
     return torch.randn(shape) * std + mean
@@ -108,14 +107,14 @@ def train(
             ys = batch.ys.to(rank)
             ts = batch.t.to(rank).reshape(-1, 1, 1)
 
-            weights = batch.weights.to(rank)
-            noise = reparam_normal(shape=weights.shape, mean=0, std=1).to(rank)
+            weights = batch.weights
+            noise = reparam_normal(shape=weights.shape, mean=0, std=1)
 
             z0, z1 = match_closest_samples(z0=weights, z1=noise)
 
             z_t = generate_trajectory(
-                z0=z0,
-                z1=z1,
+                z0=z0.to(rank),
+                z1=z1.to(rank),
                 t=ts,
                 sigma=training_config.sigma,
             ).to(rank)

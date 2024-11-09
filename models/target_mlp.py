@@ -16,7 +16,8 @@ class TargetMLP(MLP):
                          bias=config.target_mlp.bias)
 
         if config.data.features.max > in_features:
-            self.model[0][0].weight.data[:, in_features :].zero_()
+            layer_1 = self.model[0] if config.target_mlp.num_layers > 1 else self.model
+            layer_1[0].weight.data[:, in_features :].zero_()
 
     def compact_shape() -> torch.Tensor:
         """Compute shape of compact representation."""
