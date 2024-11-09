@@ -8,6 +8,7 @@ from scipy.optimize import linear_sum_assignment
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from utils import ddp_cleanup, ddp_setup, get_optimizer, save_trained_model
 
@@ -57,6 +58,7 @@ def train(
     # First Setup the Distributed Data Parallel
     ddp_setup(rank=rank, world_size=world_size)
     cfm_model.to(rank)
+    writer = SummaryWriter(save_path)
 
     if world_size > 1:
         # find unused parameters=True Bug: https://stackoverflow.com/questions/68000761/pytorch-ddp-finding-the-cause-of-expected-to-mark-a-variable-ready-only-once
@@ -99,14 +101,12 @@ def train(
         persistent_workers=training_config.num_data_workers > 0,
     )
 
-    for _iteration_i in tqdm(range(training_config.total_iterations)):
+    for iteration in (progress := tqdm(range(training_config.total_iterations))):
         iteration_loss = []
-        for _batch_i, batch in enumerate(dataloader):
+        for batch_i, batch in enumerate(dataloader):
             xs = batch.xs.to(rank)
             ys = batch.ys.to(rank)
             ts = batch.t.to(rank).reshape(-1, 1, 1)
-
-
 
             weights = batch.weights.to(rank)
             noise = reparam_normal(shape=weights.shape, mean=0, std=1).to(rank)
@@ -134,9 +134,15 @@ def train(
             optimizer.step()
 
             # loss tracking
-            iteration_loss.append(loss.item())
+            loss_scalar = loss.item()
+            writer.add_scalar(
+                tag="loss",
+                scalar_value=loss_scalar,
+                global_step=iteration * training_config.batches_per_iteration + batch_i,
+            )
+            iteration_loss.append(loss_scalar)
 
-        print(f"Iteration: {_iteration_i} - Loss: {np.mean(iteration_loss)}")
+        progress.set_description(f"Loss: {np.mean(iteration_loss)}")
 
     ddp_cleanup(world_size=world_size)
 

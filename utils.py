@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import os
-import pickle
 import random
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
+from config import config
 from torch import nn, optim
 from torch.distributed import destroy_process_group, init_process_group
-from torch.nn.parallel import DistributedDataParallel as DDP
-from config import config
+from torch.nn.parallel import DistributedDataParallel
 
 
 def get_optimizer(optimizer_str: str):
+    """Map opimizer name to class."""
     optimizer_str = optimizer_str.lower()
     if optimizer_str == "adam":
         return optim.Adam
@@ -26,6 +26,7 @@ def get_optimizer(optimizer_str: str):
 
 
 def get_criterion(criterion_str: str):
+    """Map training criterion name to class."""
     criterion_str = criterion_str.lower()
     if criterion_str == "mse":
         return nn.MSELoss
@@ -41,6 +42,7 @@ def get_criterion(criterion_str: str):
 
 
 def get_activation(activation_str: str):
+    """Map activation module name to class."""
     activation_str = activation_str.lower()
     if activation_str == "relu":
         return nn.ReLU
@@ -57,6 +59,7 @@ def get_activation(activation_str: str):
 
 
 def get_number_parameters(module: nn.Module):
+    """Nice flex."""
     total_params = sum(p.numel() for p in module.parameters())
 
     # Format the number of parameters with appropriate units
@@ -114,13 +117,13 @@ def ddp_cleanup(world_size):
         destroy_process_group()
 
 
-def save_trained_model(model: nn.Module, optimizer, save_path):
+def save_trained_model(model: nn.Module, optimizer: torch.optim.Optimizer, save_path):
     path = f"{save_path}/model_weights.pth"
 
-    module_ = model.module if isinstance(model, DDP) else model
+    module_ = model.module if isinstance(model, DistributedDataParallel) else model
 
     checkpoint = {
-        "config": config,
+        "config": config.get_dict_recursive(),
         "model_state_dict": module_.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
     }
