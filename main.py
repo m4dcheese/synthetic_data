@@ -3,66 +3,19 @@ from __future__ import annotations
 import torch.multiprocessing as mp
 from config import config
 from gym.train import train
-from models.cfm import CFM
-from models.cfm_data_projection import DataProjection
-from models.cfm_prediction_head import PredictionHead
-from models.cfm_weight_projection import WeightProjection
-from models.positional_encoding import PositionalEncoding
-from torch.nn import (
-    TransformerDecoder,
-    TransformerDecoderLayer,
-    TransformerEncoder,
-    TransformerEncoderLayer,
+from model_io import load_trained_model
+from models.cfm import build_cfm_from_config
+from utils import (
+    get_criterion,
+    get_experiment_path,
+    set_global_seed,
 )
-from utils import get_criterion, get_experiment_path, set_global_seed
 
 
 def main():
     experiment_path = get_experiment_path(base_path=config.results.base_path)
 
-    cfm_model = CFM(
-        data_projection=DataProjection(
-            input_dim=config.data.features.max,
-            hidden_dim=config.cfm.data_projection.hidden_dim,
-        ),
-        weight_projection=WeightProjection(
-            hidden_dim=config.cfm.weight_projection.hidden_dim,
-            positional_encoding=PositionalEncoding(
-                d_model=config.cfm.transformer.decoder.d_model,
-                dropout=config.cfm.positional_encoding.dropout,
-                max_len=config.data.samples.max,
-            ),
-        ),
-        encoder=TransformerEncoder(
-            encoder_layer=TransformerEncoderLayer(
-                d_model=config.cfm.transformer.encoder.d_model,
-                nhead=config.cfm.transformer.encoder.nhead,
-                dim_feedforward=config.cfm.transformer.encoder.dim_feedforward,
-                dropout=config.cfm.transformer.encoder.dropout,
-                activation=config.cfm.transformer.encoder.activation_str,
-                layer_norm_eps=config.cfm.transformer.encoder.layer_norm_eps,
-                batch_first=config.cfm.transformer.encoder.batch_first,
-                norm_first=config.cfm.transformer.encoder.norm_first,
-                bias=config.cfm.transformer.encoder.bias,
-            ),
-            num_layers=config.cfm.transformer.encoder.num_layers,
-        ),
-        decoder=TransformerDecoder(
-            decoder_layer=TransformerDecoderLayer(
-                d_model=config.cfm.transformer.decoder.d_model,
-                nhead=config.cfm.transformer.decoder.nhead,
-                dim_feedforward=config.cfm.transformer.decoder.dim_feedforward,
-                dropout=config.cfm.transformer.decoder.dropout,
-                activation=config.cfm.transformer.decoder.activation_str,
-                layer_norm_eps=config.cfm.transformer.decoder.layer_norm_eps,
-                batch_first=config.cfm.transformer.decoder.batch_first,
-                norm_first=config.cfm.transformer.decoder.norm_first,
-                bias=config.cfm.transformer.decoder.bias,
-            ),
-            num_layers=config.cfm.transformer.decoder.num_layers,
-        ),
-        prediction_head=PredictionHead(),
-    )
+    cfm_model = build_cfm_from_config(config)
 
     loss_fn = get_criterion(criterion_str=config.criterion.criterion_str)()
 

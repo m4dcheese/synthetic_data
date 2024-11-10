@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from config import config
 from models.mlp import MLP
-from models.target_mlp import TargetMLP
 
 
 class PredictionHead(MLP):
-
-    def __init__(self):
-        weight_output_dim = TargetMLP.compact_shape()[1]
-
-        super().__init__(in_features=config.cfm.transformer.decoder.d_model,
-                         out_features=weight_output_dim,
-                         hidden_dim=config.cfm.prediction_head.hidden_dim,
-                         num_layers=config.cfm.prediction_head.num_layers,
-                         activation=config.cfm.prediction_head.activation_str,
-                         bias=config.cfm.prediction_head.bias)
+    """Basic MLP prediction head mapping tokens to rows in compact target mlp form."""
+    def __init__(
+        self,
+        weight_output_dim: int,
+        transformer_config,
+        prediction_head_config,
+    ):
+        """Specify configs and weight_output_dim (width of compact form)."""
+        super().__init__(
+            in_features=transformer_config.decoder.d_model,
+            out_features=weight_output_dim,
+            hidden_dim=prediction_head_config.hidden_dim,
+            num_layers=prediction_head_config.num_layers,
+            activation_str=prediction_head_config.activation_str,
+            bias=prediction_head_config.bias,
+        )

@@ -7,10 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from config import config
 from torch import nn, optim
 from torch.distributed import destroy_process_group, init_process_group
-from torch.nn.parallel import DistributedDataParallel
 
 
 def get_optimizer(optimizer_str: str):
@@ -115,17 +113,3 @@ def ddp_setup(rank, world_size):
 def ddp_cleanup(world_size):
     if world_size > 1:
         destroy_process_group()
-
-
-def save_trained_model(model: nn.Module, optimizer: torch.optim.Optimizer, save_path):
-    path = f"{save_path}/model_weights.pth"
-
-    module_ = model.module if isinstance(model, DistributedDataParallel) else model
-
-    checkpoint = {
-        "config": config.get_dict_recursive(),
-        "model_state_dict": module_.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-    }
-
-    torch.save(checkpoint, path)

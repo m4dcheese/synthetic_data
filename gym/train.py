@@ -4,13 +4,15 @@ import numpy as np
 import torch
 from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
+from model_io import save_trained_model
 from scipy.optimize import linear_sum_assignment
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from utils import ddp_cleanup, ddp_setup, get_optimizer, save_trained_model
+from utils import ddp_cleanup, ddp_setup, get_optimizer
+
 
 def reparam_normal(shape, mean=0, std=1):
     """Sample from normal distribution with reparameterization trick."""
