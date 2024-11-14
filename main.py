@@ -14,8 +14,11 @@ from utils import (
 
 def main():
     experiment_path = get_experiment_path(base_path=config.results.base_path)
+    # Uncomment for loading trained model:
+    # map_rank = "cpu" if config.training.world_size == 0 else "cuda:0"
+    # cfm_model = load_trained_model("model_weights.pth", rank=map_rank)[1]
 
-    cfm_model = build_cfm_from_config(config)
+    cfm_model = build_cfm_from_config(config=config)
 
     loss_fn = get_criterion(criterion_str=config.criterion.criterion_str)()
 

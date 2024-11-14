@@ -19,9 +19,9 @@ def save_trained_model(model: torch.nn.Module, optimizer: torch.optim.Optimizer,
     torch.save(checkpoint, path)
 
 
-def load_trained_model(path: str, device: str = "cpu"):
+def load_trained_model(path: str, rank: str = "cpu"):
     """Load model from checkpoint including config and weights."""
-    data = torch.load(path, map_location=device)
+    data = torch.load(path, map_location=rank, weights_only=True)
     c = make_dotdict_recursive(data["config"])
     cfm_model = build_cfm_from_config(c)
     cfm_model.load_state_dict(data["model_state_dict"])

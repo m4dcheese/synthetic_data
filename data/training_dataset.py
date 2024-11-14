@@ -120,7 +120,11 @@ class TrainingDataset(IterableDataset):
                 )
 
             # ----- ----- M O D E L
-            model = TargetMLP(in_features=data_hps.features).to(self.rank)
+            model = TargetMLP(
+                mlp_config=self.mlp_config,
+                data_config=self.data_config,
+                in_features=data_hps.features
+            ).to(self.rank)
 
             # ----- ----- L A B E L S
             ys_regression = model(xs).squeeze(-1)  # batch_size, sequence_length

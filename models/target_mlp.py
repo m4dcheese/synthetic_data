@@ -57,7 +57,7 @@ class TargetMLP(MLP):
 
     def get_compact_form(self) -> torch.Tensor:
         """Return compact form representing model weights and biases."""
-        size = TargetMLP.compact_shape()
+        size = self.compact_shape()
 
         compact_form = torch.zeros(size=size)
 
