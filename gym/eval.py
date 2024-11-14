@@ -10,6 +10,7 @@ from scipy.optimize import linear_sum_assignment
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from models.target_mlp import TargetMLP
 from utils import ddp_cleanup, ddp_setup
 
 
@@ -95,7 +96,7 @@ def evaluate(path: str, eval_config):
 
         # Naive forward euler
         diff_list_vn = []
-        ode_steps = 50
+        ode_steps = 100
         with torch.no_grad():
             for i in tqdm(range(ode_steps)):
                 # TODO Is t correct, or other direction?
@@ -104,16 +105,36 @@ def evaluate(path: str, eval_config):
                     xs=xs,
                     ys=ys,
                     ts=torch.full(
-                        size=(eval_config.batch_size, 1, 1), fill_value=t_value,
+                        size=(eval_config.batch_size, 1, 1),
+                        fill_value=t_value,
                     ),
                     weights=weights_t,
                 )
                 weights_t -= v / ode_steps
                 diff_list_vn.append(
                     torch.linalg.vector_norm(
-                        weights_0 - weights_t, dim=(1, 2), keepdim=True,
+                        weights_0 - weights_t,
+                        dim=(1, 2),
+                        keepdim=True,
                     ).reshape(1, -1),
                 )
+        # Let's try the generated MLPs
+        loss_fn = torch.nn.MSELoss()
+        for mlp_i, compact_form in enumerate(weights_t):
+            target_mlp = TargetMLP(
+                mlp_config=model_config.target_mlp, data_config=model_config.data,
+            ).to(rank)
+            target_mlp.eval()
+            pred = target_mlp(xs[mlp_i])
+            loss = loss_fn(pred, ys[mlp_i])
+            print(f"model {mlp_i} before fit: {loss.cpu().detach().numpy()}")
+            target_mlp.load_compact_form(compact_form=compact_form)
+            target_mlp.eval()
+            pred = target_mlp(xs[mlp_i])
+            loss = loss_fn(pred, ys[mlp_i])
+            print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
+
+        # See how close we got to the ground truth:
         diff_list_vn = torch.cat(diff_list_vn)
         plt.figure()
         x = np.arange(0, 0.9999999, 1 / ode_steps)

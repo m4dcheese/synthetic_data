@@ -42,8 +42,10 @@ class TargetMLP(MLP):
 
     def load_compact_form(self, compact_form: torch.Tensor) -> None:
         """Load weights and biases from compact form."""
-        self.model[0][0].bias.data = compact_form[:-1, 0]
-        self.model[0][0].weight.data = compact_form[:-1, 1 : self.max_features + 1]
+        layer_1 = self.model[0][0] if self.num_layers > 1 else self.model[0]
+        b = -1 if self.num_layers > 1 else 1
+        layer_1.weight.data = compact_form[:b, 1 : self.max_features + 1]
+        layer_1.bias.data = compact_form[:b, 0]
 
         for i in range(self.num_layers - 2):
             col_start = 1 + self.max_features + i * self.hidden_dim
@@ -52,8 +54,9 @@ class TargetMLP(MLP):
             self.model[i + 1][0].bias.data = compact_form[-1, col_start:col_end]
 
         # Finish the puzzle by transposing last layer weights
-        self.model[-1].weight.data = compact_form[:-1, -1:].T
-        self.model[-1].bias.data = compact_form[-1, -1]
+        if self.num_layers > 1:
+            self.model[-1].weight.data = compact_form[:-1, -1:].T
+            self.model[-1].bias.data = compact_form[-1, -1]
 
     def get_compact_form(self) -> torch.Tensor:
         """Return compact form representing model weights and biases."""
@@ -63,11 +66,11 @@ class TargetMLP(MLP):
 
         # first layer
         # # double 0 index if there are more than 1 layers, because nested sequentials!
-        layer_1 = self.model[0] if self.num_layers > 1 else self.model
+        layer_1 = self.model[0][0] if self.num_layers > 1 else self.model[0]
         # Define bias row
         b = -1 if self.num_layers > 1 else 1
-        compact_form[:b, 1 : self.max_features + 1] = layer_1[0].weight.data
-        compact_form[:b, 0] = layer_1[0].bias.data
+        compact_form[:b, 1 : self.max_features + 1] = layer_1.weight.data
+        compact_form[:b, 0] = layer_1.bias.data
 
         # hidden layers
         for i in range(self.num_layers - 2):
