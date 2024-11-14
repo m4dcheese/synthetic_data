@@ -5,7 +5,6 @@
 training: 
   total_iterations: 100
   batch_size: 32
-  mlps_per_batch: 4 # needs to be a factor of batch_size
   batches_per_iteration: 100
   num_data_workers: 0
   sigma: 0.00001

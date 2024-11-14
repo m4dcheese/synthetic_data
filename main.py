@@ -3,7 +3,6 @@ from __future__ import annotations
 import torch.multiprocessing as mp
 from config import config
 from gym.train import train
-from model_io import load_trained_model
 from models.cfm import build_cfm_from_config
 from utils import (
     get_criterion,
@@ -13,11 +12,8 @@ from utils import (
 
 
 def main():
+    """Main function for training process."""
     experiment_path = get_experiment_path(base_path=config.results.base_path)
-    # Uncomment for loading trained model:
-    # map_rank = "cpu" if config.training.world_size == 0 else "cuda:0"
-    # cfm_model = load_trained_model("model_weights.pth", rank=map_rank)[1]
-
     cfm_model = build_cfm_from_config(config=config)
 
     loss_fn = get_criterion(criterion_str=config.criterion.criterion_str)()
