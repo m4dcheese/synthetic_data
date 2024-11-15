@@ -6,39 +6,16 @@ import torch
 from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
 from model_io import load_trained_model
-from scipy.optimize import linear_sum_assignment
+from models.target_mlp import TargetMLP
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from models.target_mlp import TargetMLP
 from utils import ddp_cleanup, ddp_setup
 
 
 def reparam_normal(shape, mean=0, std=1):
     """Sample from normal distribution with reparameterization trick."""
     return torch.randn(shape) * std + mean
-
-
-def generate_trajectory(z0, z1, t, sigma):
-    """Linear interpolation between z0 and z1."""
-    return (1 - t) * z0 + (sigma + (1 - sigma) * t) * z1
-
-
-def match_closest_samples(z0: torch.Tensor, z1: torch.Tensor):
-    """Find best sample pairs to avoid intersecting trajecrories."""
-    # Flatten the tensors to shape (batch_size, -1)
-    z0_flat = z0.flatten(start_dim=1)
-    z1_flat = z1.flatten(start_dim=1)
-
-    # Compute the (batch_size, batch_size) distance matrix
-    D = np.linalg.norm(z0_flat[:, None] - z1_flat[None, :], axis=2)
-
-    # Use the linear sum assignment algorithm to find the optimal assignment
-    _, col_ind = linear_sum_assignment(D)
-    # permute the rows of B to match the columns of A
-    b_matched = z1_flat[col_ind]
-    b_matched = b_matched.reshape(z1.shape)
-    return z0, b_matched
 
 
 def evaluate(path: str, eval_config):
@@ -96,7 +73,7 @@ def evaluate(path: str, eval_config):
 
         # Naive forward euler
         diff_list_vn = []
-        ode_steps = 100
+        ode_steps = 20
         with torch.no_grad():
             for i in tqdm(range(ode_steps)):
                 # TODO Is t correct, or other direction?
@@ -146,3 +123,10 @@ def evaluate(path: str, eval_config):
     ddp_cleanup(world_size=eval_config.world_size)
 
     return cfm_model
+
+
+
+# def sample_from_model(model, x_0):
+#     t = torch.tensor([1.0, 0.0], dtype=x_0.dtype, device="cuda")
+#     fake_image = odeint(model, x_0, t, atol=1e-5, rtol=1e-5, adjoint_params=model.func.parameters())
+#     return fake_image
