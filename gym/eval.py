@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from utils import ddp_cleanup, ddp_setup
 
+from torchdiffeq import odeint
+
 
 def reparam_normal(shape, mean=0, std=1):
     """Sample from normal distribution with reparameterization trick."""
@@ -99,7 +101,8 @@ def evaluate(path: str, eval_config):
         loss_fn = torch.nn.MSELoss()
         for mlp_i, compact_form in enumerate(weights_t):
             target_mlp = TargetMLP(
-                mlp_config=model_config.target_mlp, data_config=model_config.data,
+                mlp_config=model_config.target_mlp,
+                data_config=model_config.data,
             ).to(rank)
             target_mlp.eval()
             pred = target_mlp(xs[mlp_i])
@@ -124,6 +127,127 @@ def evaluate(path: str, eval_config):
 
     return cfm_model
 
+
+def evaluate_with_odeint(path: str, eval_config):
+    """Run the main evaluation loop using `odeint` for solving the forward pass."""
+    rank = "cpu" if eval_config.world_size == 0 else "cuda:0"
+    # First Setup the Distributed Data Parallel
+    ddp_setup(rank=rank, world_size=eval_config.world_size)
+    model_config, cfm_model, optimizer = load_trained_model(path=path, rank=rank)
+
+    if eval_config.world_size > 1:
+        # find unused parameters=True Bug: https://stackoverflow.com/questions/68000761/pytorch-ddp-finding-the-cause-of-expected-to-mark-a-variable-ready-only-once
+        cfm_model = DistributedDataParallel(
+            cfm_model,
+            device_ids=[rank],
+            find_unused_parameters=False,
+            broadcast_buffers=False,
+        )
+
+    # Set to eval mode
+    cfm_model.eval()
+
+    # Dataset and DataLoader
+    dataset = TrainingDataset(
+        data_hp_sampler=DataHyperparameterSampler(model_config.data),
+        training_config=eval_config,
+        data_config=model_config.data,
+        mlp_config=model_config.target_mlp,
+        rank=rank,
+        worldsize=eval_config.world_size,
+        num_data_workers=eval_config.num_data_workers,
+    )
+
+    dataloader = DataLoader(
+        dataset=dataset,
+        shuffle=False,
+        collate_fn=dataset.collate_fn,
+        worker_init_fn=dataset.worker_init_fn,
+        num_workers=eval_config.num_data_workers,
+        prefetch_factor=eval_config.data_prefetch_factor
+        if eval_config.num_data_workers > 0
+        else None,
+        persistent_workers=eval_config.num_data_workers > 0,
+    )
+
+    for _, batch in enumerate(dataloader):
+        xs = batch.xs.to(rank)
+        ys = batch.ys.to(rank)
+        weights_0 = batch.weights.to(rank)
+        # reduce batch_size:
+        xs = xs[:2]
+        ys = ys[:2]
+        weights_0 = weights_0[:2]
+
+        # Start with random MLP weights
+        weights_t = reparam_normal(shape=weights_0.shape, mean=0, std=1)
+
+        # Define the ODE function
+        class ODEFunc(torch.nn.Module):
+            def __init__(self, cfm_model, xs, ys):
+                super().__init__()
+                self.cfm_model = cfm_model
+                self.xs = xs
+                self.ys = ys
+
+            def forward(self, t, weights):
+                t_tensor = torch.full(
+                    size=(weights.shape[0], 1, 1),
+                    fill_value=t,
+                    dtype=weights.dtype,
+                    device=weights.device,
+                )
+                v = self.cfm_model(xs=self.xs, ys=self.ys, ts=t_tensor, weights=weights)
+                return -v
+
+        ode_cfm = ODEFunc(cfm_model, xs, ys)
+
+        # Solve ODE
+        with torch.no_grad():
+            t_span = torch.tensor([1.0, 0.0], device=rank)  # Integration interval
+            weights_t_trajectory = odeint(
+                ode_cfm,
+                weights_t,
+                t_span,
+                atol=1e-5,
+                rtol=1e-5,
+            )
+
+        # Use the final weights from the trajectory
+        final_weights_t = weights_t_trajectory[-1]
+
+        # Let's try the generated MLPs
+        loss_fn = torch.nn.MSELoss()
+        for mlp_i, compact_form in enumerate(final_weights_t):
+            target_mlp = TargetMLP(
+                mlp_config=model_config.target_mlp,
+                data_config=model_config.data,
+            ).to(rank)
+            target_mlp.eval()
+            pred = target_mlp(xs[mlp_i]).squeeze(-1)
+            loss = loss_fn(pred, ys[mlp_i])
+            print(f"model {mlp_i} before fit: {loss.cpu().detach().numpy()}")
+            target_mlp.load_compact_form(compact_form=compact_form)
+            target_mlp.eval()
+            pred = target_mlp(xs[mlp_i]).squeeze(-1)
+            loss = loss_fn(pred, ys[mlp_i])
+            print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
+
+        # See how close we got to the ground truth:
+        weights_t_diff = torch.linalg.vector_norm(
+            weights_0 - final_weights_t, dim=(1, 2), keepdim=True
+        ).reshape(1, -1)
+        plt.figure()
+        x = np.arange(0, 0.9999999, 1 / len(weights_t_trajectory))
+        plt.plot(x, weights_t_diff[0], label="Vector norm sample 0")
+        plt.xlabel("Time")
+        plt.ylabel("Difference in weights")
+        plt.legend()
+        plt.show()
+
+    ddp_cleanup(world_size=eval_config.world_size)
+
+    return cfm_model
 
 
 # def sample_from_model(model, x_0):

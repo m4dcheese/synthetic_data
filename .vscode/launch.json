@@ -1,25 +1,27 @@
 {
     "version": "0.2.0",
     "configurations": [
-        {
-            "name": "train_clfm_mnist.py",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/experiments/train_clfm_mnist.py",
-            "justMyCode": true,
-            "python": "/home/pufferfish/anaconda3/envs/synthetic_data/bin/python",  
-            "console": "integratedTerminal",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}"
-            }
-        },
+      
         {
             "name": "main.py",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "justMyCode": true,
-            "python": "/home/pufferfish/anaconda3/envs/synthetic_data/bin/python",  
+            "python": "/home/pufferfish/anaconda3/envs/cfm/bin/python",  
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+      
+        {
+            "name": "run_eval.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_eval.py",
+            "justMyCode": true,
+            "python": "/home/pufferfish/anaconda3/envs/cfm/bin/python",  
             "console": "integratedTerminal",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
