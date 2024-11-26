@@ -123,7 +123,7 @@ class TrainingDataset(IterableDataset):
             model = TargetMLP(
                 mlp_config=self.mlp_config,
                 data_config=self.data_config,
-                in_features=data_hps.features
+                in_features=data_hps.features,
             ).to(self.rank)
 
             # ----- ----- L A B E L S
@@ -138,6 +138,11 @@ class TrainingDataset(IterableDataset):
                 size=(xs.shape[0],),
                 device=self.rank,
             ) * (quantile_75 - quantile_25)
+
+            # if shift option was unknown at model training point, this is None
+            if self.data_config.shift_for_threshold:
+                # use threshold to shift model output for <|> 0 classification
+                model.shift_for_threshold(threshold=threshold)
 
             # use threshold to create binary labels
             ys_labels = (ys_regression > threshold.unsqueeze(-1)).long()

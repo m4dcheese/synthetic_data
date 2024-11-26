@@ -27,8 +27,12 @@ class TargetMLP(MLP):
         self.max_features = data_config.features.max
 
         if data_config.features.max > in_features and in_features > 0:
-            layer_1 = self.model[0] if self.num_layers > 1 else self.model
-            layer_1[0].weight.data[:, mlp_config.in_features :].zero_()
+            layer_1 = self.model[0][0] if self.num_layers > 1 else self.model[0]
+            layer_1.weight.data[:, mlp_config.in_features :].zero_()
+
+    def shift_for_threshold(self, threshold: int):
+        """Subtract the given threshold from last layer's bias."""
+        self.model[-1].bias.data -= threshold
 
     def compact_shape(self) -> torch.Tensor:
         """Compute shape of compact representation."""
