@@ -152,17 +152,17 @@ def evaluate(path: str, eval_config):
                     data_config=model_config.data,
                 ).to(rank)
                 target_mlp.eval()
-                pred = binary_decision(target_mlp(xs[mlp_i]), threshold[mlp_i])
-                loss = loss_fn(pred, ys[mlp_i])
+                pred_bin = binary_decision(target_mlp(xs[mlp_i]), threshold=0).squeeze()
+                loss = loss_fn(pred_bin, ys[mlp_i])
                 print(f"model {mlp_i} before fit: {loss.cpu().detach().numpy()}")
 
                 target_mlp.load_compact_form(compact_form=compact_form)
                 target_mlp.eval()
                 pred = target_mlp(xs[mlp_i])
                 # Threshold can be replaced with 0 when target model weights include decision boundary
-                pred_bin = binary_decision(pred.clone(), threshold[mlp_i]).squeeze().detach()
+                pred_bin = binary_decision(pred.clone(), threshold=0).squeeze().detach()
                 gt = ys[mlp_i].detach()
-                loss = loss_fn(pred_bin, gt)
+                loss = loss_fn(pred_bin, gt.squeeze())
                 print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
 
                 confusion = []
@@ -175,7 +175,8 @@ def evaluate(path: str, eval_config):
                 sn.heatmap(confusion, annot=True)
                 plt.show()
                 plt.figure()
-                plt.scatter(pred.detach(), ys_raw[mlp_i].detach(), label="Predictions over ground truth")
+                plt.scatter(ys_raw[mlp_i].detach(), pred.detach(), c=pred_bin.detach(), label="Predictions over ground truth")
+                plt.vlines([threshold[mlp_i]], -10, 10)
                 plt.xlabel("True Y")
                 plt.ylabel("Prediction")
                 plt.show()
