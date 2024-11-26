@@ -10,6 +10,7 @@ training:
   sigma: 0.00001
   world_size: 0 # 0 -> cpu, 1 -> 1-GPU, 1< -> multi-GPU
   data_prefetch_factor: 10
+  use_y_raw: false
   solver: odeint
 
 # ----- ----- ----- ----- O P T I M I Z E R

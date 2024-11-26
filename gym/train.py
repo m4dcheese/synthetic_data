@@ -106,7 +106,7 @@ def train(
         iteration_loss = []
         for batch_i, batch in enumerate(dataloader):
             xs = batch.xs.to(rank)
-            ys = batch.ys.to(rank)
+            ys = (batch.ys_raw if training_config.use_y_raw else batch.ys).to(rank)
             ts = batch.t.to(rank).reshape(-1, 1, 1)
 
             weights = batch.weights
