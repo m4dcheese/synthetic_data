@@ -102,6 +102,7 @@ def train(
         persistent_workers=training_config.num_data_workers > 0,
     )
 
+    best_loss = np.inf
     for iteration in (progress := tqdm(range(training_config.total_iterations))):
         iteration_loss = []
         for batch_i, batch in enumerate(dataloader):
@@ -143,7 +144,13 @@ def train(
             )
             iteration_loss.append(loss_scalar)
 
-        progress.set_description(f"Loss: {np.mean(iteration_loss)}")
+        mean_iteration_loss = np.mean(iteration_loss)
+        progress.set_description(f"Loss: {mean_iteration_loss}")
+
+        if mean_iteration_loss < best_loss and rank in ["cpu", "cuda:0"]:
+            best_loss = mean_iteration_loss
+            print("Saved")
+            save_trained_model(model=cfm_model, optimizer=optimizer, save_path=save_path)
 
     ddp_cleanup(world_size=world_size)
 
