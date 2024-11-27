@@ -102,7 +102,7 @@ def train(
         persistent_workers=training_config.num_data_workers > 0,
     )
 
-    mean_iteration_loss = np.inf
+    best_loss = np.inf
     for iteration in (progress := tqdm(range(training_config.total_iterations))):
         iteration_loss = []
         for batch_i, batch in enumerate(dataloader):
