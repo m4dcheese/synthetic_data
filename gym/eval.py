@@ -11,7 +11,6 @@ from models.target_mlp import TargetMLP
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torchdiffeq import odeint
-from tqdm import tqdm
 from utils import ddp_cleanup, ddp_setup
 
 
@@ -29,7 +28,9 @@ def binary_decision(prediction, threshold):
 
 
 class ODEFunc(torch.nn.Module):
+    """Encapsulate X-Y data with model for ODE solver."""
     def __init__(self, cfm_model, xs, ys):
+        """Initialize new model with partial arguments x and y."""
         super().__init__()
         self.cfm_model = cfm_model
         self.xs = xs
@@ -42,8 +43,112 @@ class ODEFunc(torch.nn.Module):
             dtype=weights.dtype,
             device=weights.device,
         )
-        v = self.cfm_model(xs=self.xs, ys=self.ys, ts=t_tensor, weights=weights)
-        return v
+        return self.cfm_model(xs=self.xs, ys=self.ys, ts=t_tensor, weights=weights)
+
+
+def evaluate_target_network(
+    mlp_config,
+    data_config,
+    x: torch.Tensor,
+    threshold: int = 0,
+    compact_form: torch.Tensor = None,
+):
+    """Load target network and evaluate."""
+    model = TargetMLP(mlp_config=mlp_config, data_config=data_config)
+    if compact_form is not None:
+        model.load_compact_form(compact_form=compact_form)
+    model.eval()
+    with torch.no_grad():
+        pred = model(x).detach().cpu()
+        pred_bin = binary_decision(pred.clone(), threshold=threshold).squeeze()
+
+    return pred, pred_bin
+
+
+def solve_ode_naive(
+    cfm_model: torch.nn.Module,
+    initial_weights: torch.Tensor,
+    steps: int,
+    x: torch.Tensor,
+    y: torch.Tensor,
+) -> torch.Tensor:
+    """Solve ODE with naive explicit euler."""
+    weights_t = initial_weights
+    trajectory = [initial_weights.clone().unsqueeze(0)]
+    for i in range(steps):
+        t_value = 1 - (i / steps)
+        v = cfm_model(
+            xs=x,
+            ys=y,
+            ts=torch.full(
+                size=(x.shape[0], 1, 1),
+                fill_value=t_value,
+            ),
+            weights=weights_t,
+        )
+        weights_t -= v / steps
+        trajectory.append(weights_t.clone().unsqueeze(0))
+    return torch.cat(trajectory)
+
+
+def solve_ode_odeint(
+    cfm_model: torch.nn.Module,
+    initial_weights: torch.Tensor,
+    steps: int,
+    x: torch.Tensor,
+    y: torch.Tensor,
+) -> torch.Tensor:
+    """Solve ODE using torchdiffeq."""
+    ode_cfm = ODEFunc(cfm_model, x, y).to(x.device)
+    with torch.no_grad():
+        t_span = torch.tensor(np.linspace(1.0, 0.0, steps+1), device=x.device)
+        return odeint(
+            ode_cfm,
+            initial_weights,
+            t_span,
+            atol=1e-5,
+            rtol=1e-5,
+        )
+
+
+def plot_confusion_matrix(pred_bin, gt_bin):
+    """Display confusion matrix."""
+    plt.figure()
+    confusion = []
+    for x in (0, 1):
+        confusion_part = []
+        for y in (0, 1):
+            confusion_part.append(((pred_bin == x) & (gt_bin == y)).sum())
+        confusion.append(confusion_part)
+    sn.heatmap(confusion, annot=True)
+    plt.show()
+
+
+def plot_prediction_scatter(pred, pred_bin, gt, threshold):
+    """Scatter prediction correlation and draw/color decision boundaries."""
+    plt.figure()
+    plt.scatter(
+        x=gt,
+        y=pred,
+        c=pred_bin,
+        label="Predictions over ground truth",
+    )
+    plt.vlines([threshold], -10, 10, label="Threshold")
+    plt.xlabel("Ground Truth")
+    plt.ylabel("Prediction")
+    plt.show()
+
+
+def plot_flow_trajectory(gt: torch.Tensor, trajectory: torch.Tensor):
+    """See how close we got to the ground truth through flow matching."""
+    diff_list_vn = np.array(
+        [torch.linalg.vector_norm(t - gt).numpy() for t in trajectory],
+    )
+    plt.figure()
+    x = np.linspace(start=0, stop=1, num=len(trajectory))
+    plt.plot(x, diff_list_vn, label="Distance of pred weights from gt weights")
+    plt.legend()
+    plt.show()
 
 
 def evaluate(path: str, eval_config):
@@ -62,10 +167,8 @@ def evaluate(path: str, eval_config):
             broadcast_buffers=False,
         )
 
-    # Set to eval mode
     cfm_model.eval()
     with torch.no_grad():
-
         # Dataset and DataLoader
         dataset = TrainingDataset(
             data_hp_sampler=DataHyperparameterSampler(model_config.data),
@@ -77,8 +180,6 @@ def evaluate(path: str, eval_config):
             num_data_workers=eval_config.num_data_workers,
         )
 
-        # "When both batch_size and batch_sampler are None (default value for batch_sampler
-        # is already None), automatic batching is disabled." (https://pytorch.org/docs/stable/data.html)
         dataloader = DataLoader(
             dataset=dataset,
             shuffle=False,
@@ -94,8 +195,6 @@ def evaluate(path: str, eval_config):
         for _, batch in enumerate(dataloader):
             xs = batch.xs.to(rank)
             ys = batch.ys.to(rank)
-            ys_raw = batch.ys_raw
-            threshold = batch.threshold
 
             # Save target weights only for comparison, batch.ts is not used
             weights_0 = batch.weights.to(rank)
@@ -103,93 +202,68 @@ def evaluate(path: str, eval_config):
             # Start with random MLP weights
             weights_t = reparam_normal(shape=weights_0.shape, mean=0, std=1)
 
-            # Naive forward euler
-            diff_list_vn = []
-            ode_steps = 20
-
             if eval_config.solver == "naive":
-                for i in tqdm(range(ode_steps)):
-                    # TODO Is t correct, or other direction?
-                    t_value = 1 - (i / ode_steps)
-                    v = cfm_model(
-                        xs=xs,
-                        ys=ys,
-                        ts=torch.full(
-                            size=(eval_config.batch_size, 1, 1),
-                            fill_value=t_value,
-                        ),
-                        weights=weights_t,
-                    )
-                    weights_t -= v / ode_steps
-                    diff_list_vn.append(
-                        torch.linalg.vector_norm(
-                            weights_0 - weights_t,
-                            dim=(1, 2),
-                            keepdim=True,
-                        ).reshape(1, -1),
-                    )
-            elif eval_config.solver == "odeint":
-                ode_cfm = ODEFunc(cfm_model, xs, ys)
+                solve_fn = solve_ode_naive
+            else:
+                solve_fn = solve_ode_odeint
 
-                # Solve ODE
-                with torch.no_grad():
-                    t_span = torch.tensor([1.0, 0.0], device=rank)  # Integration interval
-                    weights_t_trajectory = odeint(
-                        ode_cfm,
-                        weights_t,
-                        t_span,
-                        atol=1e-5,
-                        rtol=1e-5,
-                    )
-                # Use the final weights from the trajectory
-                weights_t = weights_t_trajectory[-1]
+            trajectory = solve_fn(
+                cfm_model=cfm_model,
+                initial_weights=weights_t,
+                steps=eval_config.solve_steps,
+                x=xs,
+                y=ys,
+            )
+
+            weights_t = trajectory[-1]
 
             # Let's try the generated MLPs
             loss_fn = torch.nn.MSELoss()
             for mlp_i, compact_form in enumerate(weights_t):
-                target_mlp = TargetMLP(
+                threshold = (
+                    0
+                    if model_config.data.shift_for_threshold
+                    else batch.threshold[mlp_i]
+                )
+                xs_inference = dataset.generate_features(
+                    features=batch.data_hps[mlp_i].features,
+                    samples=batch.data_hps[mlp_i].samples,
+                    max_sampled_sequence_length=max(
+                        [data_hps.samples for data_hps in batch.data_hps],
+                    ),
+                )
+
+                # Use ground truth model to generate new y labels
+                gt_weights = weights_0[mlp_i]
+                gt, gt_bin = evaluate_target_network(
                     mlp_config=model_config.target_mlp,
                     data_config=model_config.data,
-                ).to(rank)
-                target_mlp.eval()
-                pred_bin = binary_decision(target_mlp(xs[mlp_i]), threshold=0).squeeze()
-                loss = loss_fn(pred_bin, ys[mlp_i])
-                print(f"model {mlp_i} before fit: {loss.cpu().detach().numpy()}")
+                    x=xs_inference,
+                    threshold=0,
+                    compact_form=gt_weights,
+                )
+                # Use predicted model to generate predicted y labels
+                pred, pred_bin = evaluate_target_network(
+                    mlp_config=model_config.target_mlp,
+                    data_config=model_config.data,
+                    x=xs_inference,
+                    threshold=0,
+                    compact_form=compact_form,
+                )
 
-                target_mlp.load_compact_form(compact_form=compact_form)
-                target_mlp.eval()
-                pred = target_mlp(xs[mlp_i])
-                # Threshold can be replaced with 0 when target model weights include decision boundary
-                pred_bin = binary_decision(pred.clone(), threshold=0).squeeze().detach()
-                gt = ys[mlp_i].detach()
-                loss = loss_fn(pred_bin, gt.squeeze())
+                loss = loss_fn(pred_bin, gt_bin.squeeze())
                 print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
 
-                confusion = []
-                for x in (0, 1):
-                    confusion_part = []
-                    for y in (0, 1):
-                        confusion_part.append(((pred_bin == x) & (gt == y)).sum())
-                    confusion.append(confusion_part)
-
-                sn.heatmap(confusion, annot=True)
-                plt.show()
-                plt.figure()
-                plt.scatter(ys_raw[mlp_i].detach(), pred.detach(), c=pred_bin.detach(), label="Predictions over ground truth")
-                plt.vlines([threshold[mlp_i]], -10, 10)
-                plt.xlabel("True Y")
-                plt.ylabel("Prediction")
-                plt.show()
-
-            # See how close we got to the ground truth:
-            if eval_config.solver == "naive":
-                diff_list_vn = torch.cat(diff_list_vn)
-                plt.figure()
-                x = np.arange(0, 0.9999999, 1 / ode_steps)
-                plt.plot(x, diff_list_vn[:, 0], label="Vector norm sample 0")
-                plt.plot(x, diff_list_vn[:, 1], label="Vector norm sample 1")
-                plt.legend()
-                plt.show()
+                plot_confusion_matrix(pred_bin=pred_bin, gt_bin=gt_bin)
+                plot_prediction_scatter(
+                    pred=pred,
+                    pred_bin=pred_bin,
+                    gt=gt,
+                    threshold=threshold,
+                )
+                plot_flow_trajectory(
+                    batch.weights[mlp_i], trajectory=trajectory[:, mlp_i],
+                )
 
     ddp_cleanup(world_size=eval_config.world_size)
 

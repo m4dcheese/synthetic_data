@@ -12,6 +12,7 @@ training:
   data_prefetch_factor: 10
   use_y_raw: false
   solver: odeint
+  solve_steps: 100
 
 # ----- ----- ----- ----- O P T I M I Z E R
 optimizer:

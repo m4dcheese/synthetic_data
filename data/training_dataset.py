@@ -12,6 +12,7 @@ from torch.utils.data import IterableDataset
 
 class TrainingDataset(IterableDataset):
     """Generate synthetic data of model-data combinations."""
+
     def __init__(
         self,
         data_hp_sampler,
@@ -69,6 +70,39 @@ class TrainingDataset(IterableDataset):
         """
         return gpu_rank | (pid << 16)
 
+    def generate_features(
+        self,
+        features: int,
+        samples: int,
+        max_sampled_sequence_length: int,
+    ) -> torch.Tensor:
+        """Generate input features (x) for target network."""
+        xs = torch.randn(
+            size=(
+                1,  # Was batch size
+                samples,
+                features,
+            ),
+            device=self.rank,
+            generator=self.random_generator,
+        )
+        # pad xs to max features and max sampled sequence_length
+        if features < self.data_config.features.max:
+            xs = nn.functional.pad(
+                xs,
+                pad=(0, self.data_config.features.max - features),
+                mode="constant",
+                value=0,
+            )
+        if samples < max_sampled_sequence_length:
+            xs = nn.functional.pad(
+                xs,
+                pad=(0, 0, 0, max_sampled_sequence_length - samples),
+                mode="constant",
+                value=0,
+            )
+        return xs
+
     def generate_batch_of_data(self):
         """We are sampling data on the cpu, so that if we are pre-generating data
         the cuda-memory is not unnecessarily filled. We only want to have the data
@@ -87,37 +121,16 @@ class TrainingDataset(IterableDataset):
 
         xs_list = []
         ys_list = []
-        ys_raw_list = [] # Visualization and checking purpose
+        ys_raw_list = []
         threshold_list = []
         weights_list = []
         t_list = []
 
         for _, data_hps in enumerate(data_hps_list):
             # ----- ----- F E A T U R E S
-            xs = torch.randn(
-                size=(
-                    1,  # Was batch size
-                    data_hps.samples,
-                    data_hps.features,
-                ),
-                device=self.rank,
-                generator=self.random_generator,
+            xs = self.generate_features(
+                data_hps.features, data_hps.samples, max_sampled_sequence_length,
             )
-            # pad xs to max features and max sampled sequence_length
-            if data_hps.features < self.data_config.features.max:
-                xs = nn.functional.pad(
-                    xs,
-                    pad=(0, self.data_config.features.max - data_hps.features),
-                    mode="constant",
-                    value=0,
-                )
-            if data_hps.samples < max_sampled_sequence_length:
-                xs = nn.functional.pad(
-                    xs,
-                    pad=(0, 0, 0, max_sampled_sequence_length - data_hps.samples),
-                    mode="constant",
-                    value=0,
-                )
 
             # ----- ----- M O D E L
             model = TargetMLP(
