@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sn
+import seaborn as sns
 import torch
 from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
 from model_io import load_trained_model
 from models.target_mlp import TargetMLP
+from sklearn.metrics import roc_auc_score
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torchdiffeq import odeint
@@ -29,6 +30,7 @@ def binary_decision(prediction, threshold):
 
 class ODEFunc(torch.nn.Module):
     """Encapsulate X-Y data with model for ODE solver."""
+
     def __init__(self, cfm_model, xs, ys):
         """Initialize new model with partial arguments x and y."""
         super().__init__()
@@ -101,7 +103,7 @@ def solve_ode_odeint(
     """Solve ODE using torchdiffeq."""
     ode_cfm = ODEFunc(cfm_model, x, y).to(x.device)
     with torch.no_grad():
-        t_span = torch.tensor(np.linspace(1.0, 0.0, steps+1), device=x.device)
+        t_span = torch.tensor(np.linspace(1.0, 0.0, steps + 1), device=x.device)
         return odeint(
             ode_cfm,
             initial_weights,
@@ -120,7 +122,7 @@ def plot_confusion_matrix(pred_bin, gt_bin):
         for y in (0, 1):
             confusion_part.append(((pred_bin == x) & (gt_bin == y)).sum())
         confusion.append(confusion_part)
-    sn.heatmap(confusion, annot=True)
+    sns.heatmap(confusion, annot=True)
     plt.show()
 
 
@@ -148,6 +150,83 @@ def plot_flow_trajectory(gt: torch.Tensor, trajectory: torch.Tensor):
     x = np.linspace(start=0, stop=1, num=len(trajectory))
     plt.plot(x, diff_list_vn, label="Distance of pred weights from gt weights")
     plt.legend()
+    plt.show()
+
+
+def plot_roc_auc_scores(roc_auc_scores):
+    """Plot ROC AUC scores."""
+    # use seaborn to plot the ROC AUC scores (roc_auc_scores is list of scalars)
+    # figure size 16x12
+    # make nice seaborn style barplot
+    sns.set(style="whitegrid")
+    plt.figure(figsize=(12, 8))
+    # histplot
+    sns.histplot(roc_auc_scores, bins=10, kde=False)  # Adjust bins as needed
+    plt.xlabel("Model")
+    plt.ylabel("ROC AUC Score")
+    # rotate x-axis labels for better readability
+    plt.xticks(rotation=25)
+    plt.title("ROC AUC Scores")
+    plt.show()
+
+
+def plot_decision_boundary(mlp_config, data_config, compact_form, x, y, threshold):
+    # basic approach:
+    # 1. zero out all but the first two features because we can only plot in 2D
+    # 2. create a mesh grid in the 2d space
+    # 3. predict over the grid (create 8 zero features for the grid)
+    # 4. plot the decision boundary
+
+    x[:, :, 2:] = 0
+
+    # Step 2: Create a mesh grid in the 2d space
+    x_min, x_max = x[0, :, 0].min() - 1, x[0, :, 0].max() + 1
+    y_min, y_max = x[0, :, 1].min() - 1, x[0, :, 1].max() + 1
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100), np.linspace(y_min, y_max, 100))
+
+    # Flatten the mesh grid and inverse transform back to the original feature space
+    grid = np.c_[xx.ravel(), yy.ravel()]
+
+    # add 8 zero padding on the right on the last dimension for grid
+    grid = np.concatenate([grid, np.zeros((grid.shape[0], 8))], axis=1)
+
+    # Step 3: Predict over the grid
+    pred, pred_bin = evaluate_target_network(
+        mlp_config=mlp_config,
+        data_config=data_config,
+        x=torch.tensor(grid, dtype=torch.float32).unsqueeze(0),
+        threshold=threshold,
+        compact_form=compact_form,
+    )
+
+    # Reshape predictions to the shape of the mesh grid
+    pred_bin = pred_bin.reshape(xx.shape)
+
+    # Step 4: Plot the decision boundary
+    plt.figure(figsize=(8, 6))
+    plt.contourf(xx, yy, pred_bin, levels=[0, 0.5, 1], cmap="coolwarm", alpha=0.9)
+    plt.colorbar(label="Decision Boundary")
+
+    # get the true labels for the data points
+    y_label = (y > threshold).int().flatten()
+
+    x_plot = x[0, :, 0].numpy()
+    y_plot = x[0, :, 1].numpy()
+
+    scatter = plt.scatter(
+        x_plot,
+        y_plot,
+        c=y_label,
+        cmap="coolwarm",
+        edgecolor="k",
+        alpha=0.8,
+    )
+    plt.legend(*scatter.legend_elements(), title="Classes")
+    plt.title("Decision Boundary in 2D Space")
+    plt.xlabel("Features 1")
+    plt.ylabel("Features 2")
+    plt.grid(True)
+    # I think the plot looks so noisy due to biases not being zeroes in the model
     plt.show()
 
 
@@ -219,6 +298,8 @@ def evaluate(path: str, eval_config):
 
             # Let's try the generated MLPs
             loss_fn = torch.nn.MSELoss()
+
+            roc_auc_scores = []
             for mlp_i, compact_form in enumerate(weights_t):
                 threshold = (
                     0
@@ -251,6 +332,14 @@ def evaluate(path: str, eval_config):
                     compact_form=compact_form,
                 )
 
+                # measure ROC AUC score for each model and store it
+                roc_auc_scores.append(
+                    roc_auc_score(
+                        gt_bin.squeeze().detach().numpy(),
+                        pred_bin.squeeze().detach().numpy(),
+                    )
+                )
+
                 loss = loss_fn(pred_bin, gt_bin.squeeze())
                 print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
 
@@ -262,9 +351,20 @@ def evaluate(path: str, eval_config):
                     threshold=threshold,
                 )
                 plot_flow_trajectory(
-                    batch.weights[mlp_i], trajectory=trajectory[:, mlp_i],
+                    batch.weights[mlp_i],
+                    trajectory=trajectory[:, mlp_i],
                 )
 
+                plot_decision_boundary(
+                    mlp_config=model_config.target_mlp,
+                    data_config=model_config.data,
+                    compact_form=compact_form,
+                    x=xs_inference,
+                    y=gt,
+                    threshold=threshold,
+                )
+
+            plot_roc_auc_scores(roc_auc_scores)
     ddp_cleanup(world_size=eval_config.world_size)
 
     return cfm_model
