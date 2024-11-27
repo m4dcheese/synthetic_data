@@ -166,7 +166,7 @@ def plot_roc_auc_scores(roc_auc_scores):
     plt.ylabel("ROC AUC Score")
     # rotate x-axis labels for better readability
     plt.xticks(rotation=25)
-    plt.title("ROC AUC Scores")
+    plt.title(f"Histogram of ROC AUC Scores across {len(roc_auc_scores)} models")
     plt.show()
 
 
