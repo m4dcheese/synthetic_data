@@ -170,7 +170,9 @@ def plot_roc_auc_scores(roc_auc_scores):
     plt.show()
 
 
-def plot_decision_boundary(mlp_config, data_config, compact_form, x, y, threshold):
+def plot_decision_boundary(
+    mlp_config, data_config, compact_form, gt_weights, x, threshold
+):
     # basic approach:
     # 1. zero out all but the first two features because we can only plot in 2D
     # 2. create a mesh grid in the 2d space
@@ -178,6 +180,14 @@ def plot_decision_boundary(mlp_config, data_config, compact_form, x, y, threshol
     # 4. plot the decision boundary
 
     x[:, :, 2:] = 0
+
+    y, y_bin = evaluate_target_network(
+        mlp_config=mlp_config,
+        data_config=data_config,
+        x=x,
+        threshold=threshold,
+        compact_form=gt_weights,
+    )
 
     # Step 2: Create a mesh grid in the 2d space
     x_min, x_max = x[0, :, 0].min() - 1, x[0, :, 0].max() + 1
@@ -205,23 +215,22 @@ def plot_decision_boundary(mlp_config, data_config, compact_form, x, y, threshol
     # Step 4: Plot the decision boundary
     plt.figure(figsize=(8, 6))
     plt.contourf(xx, yy, pred_bin, levels=[0, 0.5, 1], cmap="coolwarm", alpha=0.9)
-    plt.colorbar(label="Decision Boundary")
+    plt.colorbar(label="Target Network Decision Boundary")
 
     # get the true labels for the data points
-    y_label = (y > threshold).int().flatten()
 
-    x_plot = x[0, :, 0].numpy()
-    y_plot = x[0, :, 1].numpy()
+    x1 = x[0, :, 0].numpy()
+    x2 = x[0, :, 1].numpy()
 
     scatter = plt.scatter(
-        x_plot,
-        y_plot,
-        c=y_label,
+        x1,
+        x2,
+        c=y_bin,
         cmap="coolwarm",
         edgecolor="k",
         alpha=0.8,
     )
-    plt.legend(*scatter.legend_elements(), title="Classes")
+    plt.legend(*scatter.legend_elements(), title="Ground Truth")
     plt.title("Decision Boundary in 2D Space")
     plt.xlabel("Features 1")
     plt.ylabel("Features 2")
@@ -359,8 +368,8 @@ def evaluate(path: str, eval_config):
                     mlp_config=model_config.target_mlp,
                     data_config=model_config.data,
                     compact_form=compact_form,
+                    gt_weights=gt_weights,
                     x=xs_inference,
-                    y=gt,
                     threshold=threshold,
                 )
 
