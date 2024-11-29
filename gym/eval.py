@@ -8,6 +8,7 @@ from data.data_hyperparameter_sampler import DataHyperparameterSampler
 from data.training_dataset import TrainingDataset
 from model_io import load_trained_model
 from models.target_mlp import TargetMLP
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
@@ -62,8 +63,8 @@ def evaluate_target_network(
         model.load_compact_form(compact_form=compact_form)
     model.eval()
     with torch.no_grad():
-        pred = model(x).detach().cpu()
-        pred_bin = binary_decision(pred.clone(), threshold=threshold).squeeze()
+        pred = model(x).detach().cpu().squeeze()
+        pred_bin = binary_decision(pred.clone(), threshold=threshold)
 
     return pred, pred_bin
 
@@ -114,7 +115,7 @@ def solve_ode_odeint(
         )
 
 
-def plot_confusion_matrix(pred_bin, gt_bin):
+def plot_confusion_matrix(pred_bin, gt_bin, model: str = ""):
     """Display confusion matrix."""
     plt.figure()
     confusion = []
@@ -126,15 +127,12 @@ def plot_confusion_matrix(pred_bin, gt_bin):
     sns.heatmap(confusion, annot=True, cmap="Blues", alpha=0.8)
     plt.xlabel("True Class")
     plt.ylabel("Predicted Class")
-    plt.title("Confusion Matrix")
+    plt.title(f"Confusion Matrix of {model}")
     plt.show()
 
 
 def plot_prediction_scatter(pred, pred_bin, gt, threshold):
     """Scatter prediction correlation and draw/color decision boundaries."""
-    pred = pred.squeeze()
-    pred_bin = pred_bin.squeeze()
-    gt = gt.squeeze()
     x_min, x_max = gt.min() - 1, gt.max() + 1
     y_min, y_max = pred.min() - 1, pred.max() + 1
     xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100), np.linspace(y_min, y_max, 100))
@@ -204,7 +202,7 @@ def plot_decision_boundary(
     # 3. predict over the grid (create 8 zero features for the grid)
     # 4. plot the decision boundary
 
-    x[:, :, 2:] = 0
+    x[:, 2:] = 0
 
     y, y_bin = evaluate_target_network(
         mlp_config=mlp_config,
@@ -215,8 +213,8 @@ def plot_decision_boundary(
     )
 
     # Step 2: Create a mesh grid in the 2d space
-    x_min, x_max = x[0, :, 0].min() - 1, x[0, :, 0].max() + 1
-    y_min, y_max = x[0, :, 1].min() - 1, x[0, :, 1].max() + 1
+    x_min, x_max = x[:, 0].min() - 1, x[:, 0].max() + 1
+    y_min, y_max = x[:, 1].min() - 1, x[:, 1].max() + 1
     xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100), np.linspace(y_min, y_max, 100))
 
     # Flatten the mesh grid and inverse transform back to the original feature space
@@ -244,8 +242,8 @@ def plot_decision_boundary(
 
     # get the true labels for the data points
 
-    x1 = x[0, :, 0].numpy()
-    x2 = x[0, :, 1].numpy()
+    x1 = x[:, 0].numpy()
+    x2 = x[:, 1].numpy()
 
     scatter = plt.scatter(
         x1,
@@ -369,15 +367,26 @@ def evaluate(path: str, eval_config):
                 # measure ROC AUC score for each model and store it
                 roc_auc_scores.append(
                     roc_auc_score(
-                        gt_bin.squeeze().detach().numpy(),
-                        pred_bin.squeeze().detach().numpy(),
+                        gt_bin.numpy(),
+                        pred_bin.numpy(),
                     ),
                 )
 
-                loss = loss_fn(pred_bin, gt_bin.squeeze())
+                loss = loss_fn(pred_bin, gt_bin)
                 print(f"model {mlp_i} after fit: {loss.cpu().detach().numpy()}")
 
-                plot_confusion_matrix(pred_bin=pred_bin, gt_bin=gt_bin)
+                plot_confusion_matrix(
+                    pred_bin=pred_bin, gt_bin=gt_bin, model="CFM-Predicted MLP",
+                )
+                if model_config.target_mlp.num_layers == 1:
+                    # Linear regression - compare closed form
+                    logreg = LogisticRegression(penalty=None).fit(X=xs[mlp_i], y=ys[mlp_i])
+                    pred_logreg = logreg.predict(X=xs_inference)
+                    plot_confusion_matrix(
+                        pred_bin=pred_logreg,
+                        gt_bin=gt_bin.numpy(),
+                        model="Logistic Regression",
+                    )
                 plot_prediction_scatter(
                     pred=pred,
                     pred_bin=pred_bin,

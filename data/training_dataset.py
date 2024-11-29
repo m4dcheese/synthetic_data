@@ -79,7 +79,6 @@ class TrainingDataset(IterableDataset):
         """Generate input features (x) for target network."""
         xs = torch.randn(
             size=(
-                1,  # Was batch size
                 samples,
                 features,
             ),
@@ -130,7 +129,7 @@ class TrainingDataset(IterableDataset):
             # ----- ----- F E A T U R E S
             xs = self.generate_features(
                 data_hps.features, data_hps.samples, max_sampled_sequence_length,
-            )
+            ).unsqueeze(0)
 
             # ----- ----- M O D E L
             model = TargetMLP(
