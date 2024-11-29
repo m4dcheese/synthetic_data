@@ -39,6 +39,7 @@ class ODEFunc(torch.nn.Module):
         self.ys = ys
 
     def forward(self, t, weights):
+        """Torch forward."""
         t_tensor = torch.full(
             size=(weights.shape[0], 1, 1),
             fill_value=t,
@@ -122,22 +123,38 @@ def plot_confusion_matrix(pred_bin, gt_bin):
         for y in (0, 1):
             confusion_part.append(((pred_bin == x) & (gt_bin == y)).sum())
         confusion.append(confusion_part)
-    sns.heatmap(confusion, annot=True)
+    sns.heatmap(confusion, annot=True, cmap="Blues", alpha=0.8)
+    plt.xlabel("True Class")
+    plt.ylabel("Predicted Class")
+    plt.title("Confusion Matrix")
     plt.show()
 
 
 def plot_prediction_scatter(pred, pred_bin, gt, threshold):
     """Scatter prediction correlation and draw/color decision boundaries."""
+    pred = pred.squeeze()
+    pred_bin = pred_bin.squeeze()
+    gt = gt.squeeze()
+    x_min, x_max = gt.min() - 1, gt.max() + 1
+    y_min, y_max = pred.min() - 1, pred.max() + 1
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100), np.linspace(y_min, y_max, 100))
     plt.figure()
-    plt.scatter(
+    plt.contourf(xx, yy, xx > threshold, levels=[0, 0.5, 1], cmap="coolwarm", alpha=0.9)
+    plt.colorbar(label="True Decision Boundary")
+    scatter = plt.scatter(
         x=gt,
         y=pred,
         c=pred_bin,
-        label="Predictions over ground truth",
+        label="Examples",
+        cmap="coolwarm",
+        alpha=0.8,
+        edgecolor="k",
     )
-    plt.vlines([threshold], -10, 10, label="Threshold")
     plt.xlabel("Ground Truth")
     plt.ylabel("Prediction")
+    plt.legend(*scatter.legend_elements(), title="Predicted Class")
+    plt.grid(visible=True)
+    plt.title("True vs. Predicted Class")
     plt.show()
 
 
@@ -148,8 +165,10 @@ def plot_flow_trajectory(gt: torch.Tensor, trajectory: torch.Tensor):
     )
     plt.figure()
     x = np.linspace(start=0, stop=1, num=len(trajectory))
-    plt.plot(x, diff_list_vn, label="Distance of pred weights from gt weights")
-    plt.legend()
+    plt.plot(x, diff_list_vn)
+    plt.xlabel("Timestep t of ODE Solver")
+    plt.ylabel("Distance to True MLP Weights")
+    plt.title("ODE Solver Trajectory Distance")
     plt.show()
 
 
@@ -158,7 +177,7 @@ def plot_roc_auc_scores(roc_auc_scores):
     # use seaborn to plot the ROC AUC scores (roc_auc_scores is list of scalars)
     # figure size 16x12
     # make nice seaborn style barplot
-    sns.set(style="whitegrid")
+    sns.set_theme(style="whitegrid")
     plt.figure(figsize=(12, 8))
     # histplot
     sns.histplot(roc_auc_scores, bins=10, kde=False)  # Adjust bins as needed
@@ -171,8 +190,14 @@ def plot_roc_auc_scores(roc_auc_scores):
 
 
 def plot_decision_boundary(
-    mlp_config, data_config, compact_form, gt_weights, x, threshold
+    mlp_config,
+    data_config,
+    compact_form,
+    gt_weights,
+    x,
+    threshold,
 ):
+    """Compare model decision boundary to true classes."""
     # basic approach:
     # 1. zero out all but the first two features because we can only plot in 2D
     # 2. create a mesh grid in the 2d space
@@ -231,10 +256,10 @@ def plot_decision_boundary(
         alpha=0.8,
     )
     plt.legend(*scatter.legend_elements(), title="Ground Truth")
-    plt.title("Decision Boundary in 2D Space")
-    plt.xlabel("Features 1")
-    plt.ylabel("Features 2")
-    plt.grid(True)
+    plt.title("Decision Boundary for 2 Features")
+    plt.xlabel("Feature 1")
+    plt.ylabel("Feature 2")
+    plt.grid(visible=True)
     # I think the plot looks so noisy due to biases not being zeroes in the model
     plt.show()
 
@@ -346,7 +371,7 @@ def evaluate(path: str, eval_config):
                     roc_auc_score(
                         gt_bin.squeeze().detach().numpy(),
                         pred_bin.squeeze().detach().numpy(),
-                    )
+                    ),
                 )
 
                 loss = loss_fn(pred_bin, gt_bin.squeeze())
