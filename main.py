@@ -1,4 +1,5 @@
 from __future__ import annotations
+from argparse import ArgumentParser
 
 import torch.multiprocessing as mp
 from config import config
@@ -10,9 +11,22 @@ from utils import (
     set_global_seed,
 )
 
+config_changes = [
+    [
+        "config.data.features.min=1",
+        "config.data.samples.min=100",
+    ],
+    [
+        "config.target_mlp.num_layers=2",
+        "config.target_mlp.hidden_dim=4",
+    ]
+]
 
-def main():
+def main(run: int):
     """Main function for training process."""
+    # Adapt config for different runs
+    for config_change in config_changes[run]:
+        eval(config_change)
     experiment_path = get_experiment_path(base_path=config.results.base_path)
     cfm_model = build_cfm_from_config(config=config)
 
@@ -72,4 +86,7 @@ def main():
 
 if __name__ == "__main__":
     set_global_seed(42)
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("--run", type=int, default=0, help="Index of config adaptation used in main function")
+    args = parser.parse_args()
+    main(run=args.run)
