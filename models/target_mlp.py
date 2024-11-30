@@ -28,7 +28,7 @@ class TargetMLP(MLP):
 
         if data_config.features.max > in_features and in_features > 0:
             layer_1 = self.model[0][0] if self.num_layers > 1 else self.model[0]
-            layer_1.weight.data[:, mlp_config.in_features :].zero_()
+            layer_1.weight.data[:, in_features :].zero_()
 
     def shift_for_threshold(self, threshold: int):
         """Subtract the given threshold from last layer's bias."""
