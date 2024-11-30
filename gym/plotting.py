@@ -119,8 +119,10 @@ def plot_decision_boundary(
     # Flatten the mesh grid and inverse transform back to the original feature space
     grid = np.c_[xx.ravel(), yy.ravel()]
 
-    # add 8 zero padding on the right on the last dimension for grid
-    grid = np.concatenate([grid, np.zeros((grid.shape[0], 8))], axis=1)
+    # add zero padding on the right on the last dimension for grid
+    to_pad = x.shape[-1] - 2
+    if to_pad > 0:
+        grid = np.concatenate([grid, np.zeros((grid.shape[0], to_pad))], axis=1)
 
     # Step 3: Predict over the grid
     pred, pred_bin = evaluate_target_network(
