@@ -200,7 +200,9 @@ def evaluate_on_real(path: str, eval_config: dict, datasets: list[str]):
 
         for dataset_str in datasets:
             train_x, train_y, test_x, test_y = load_dataset(
-                dataset_str,
+                dataset_str=dataset_str,
+                train_size=model_config.data.samples.max,
+                test_size=model_config.data.samples.max,
                 features_max=model_config.data.features.max,
             )
 

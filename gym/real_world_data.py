@@ -13,16 +13,54 @@ datasets_config = {
         "y_column": "Survived",
         "x_columns": {
             "Pclass": {
-                "type": "int",
+                "type": "number",
             },
             "Sex": {
                 "type": "string",
                 "map": {"male": "-1", "female": "1"},
             },
-            "Age": {"type": "int"},
-            "SibSp": {"type": "int"},
-            "Parch": {"type": "int"},
-            "Fare": {"type": "int"},
+            "Age": {"type": "number"},
+            "SibSp": {"type": "number"},
+            "Parch": {"type": "number"},
+            "Fare": {"type": "number"},
+        },
+    },
+    "student_depression": {
+        "splits": {
+            "train": "/train.csv",
+        },
+        "y_column": "Depression",
+        "x_columns": {
+            "Gender": {
+                "type": "string",
+                "map": {"Male": "-1", "Female": "1"},
+            },
+            "Age": {"type": "number"},
+            "Academic Pressure": {"type": "number"},
+            "Work Pressure": {"type": "number"},
+            "CGPA": {"type": "number"},
+            "Study Satisfaction": {"type": "number"},
+            "Sleep Duration": {
+                "type": "string",
+                "map": {
+                    "Less than 5 hours": "-1.5",
+                    "5-6 hours": "-0.5",
+                    "7-8 hours": "0.5",
+                    "More than 8 hours": "1.5",
+                },
+                "drop": ["Others"],
+            },
+            "Dietary Habits": {
+                "type": "string",
+                "map": {
+                    "Unhealthy": "-1",
+                    "Moderate": "0",
+                    "Healthy": "1",
+                },
+                "drop": ["Others"],
+            },
+            "Work/Study Hours": {"type": "number"},
+            "Financial Stress": {"type": "number"},
         },
     },
 }
@@ -32,6 +70,7 @@ def load_and_pad(dataset: pd.DataFrame, columns: str | list[str], features_max: 
     """Pad feature vectors with 0s."""
     data = torch.Tensor(dataset[columns].to_numpy())
     if isinstance(columns, list):
+        assert features_max >= data.shape[-1]
         data = torch.nn.functional.pad(
             data,
             pad=(0, features_max - data.shape[-1]),
@@ -41,7 +80,7 @@ def load_and_pad(dataset: pd.DataFrame, columns: str | list[str], features_max: 
     return data
 
 
-def load_dataset(dataset_str: str, features_max: int):
+def load_dataset(dataset_str: str, train_size: int, test_size: int, features_max: int):
     """Return relevant columns and normalized values of dataset."""
     assert dataset_str in datasets_config
     base_path = "datasets/"
@@ -66,6 +105,10 @@ def load_dataset(dataset_str: str, features_max: int):
 
     # replace and standardize
     for cname, cspec in dataset_config.x_columns.items():
+        if "drop" in cspec:
+            for drop_str in cspec.drop:
+                dataset_train = dataset_train[dataset_train[cname] != drop_str]
+                dataset_test = dataset_test[dataset_test[cname] != drop_str]
         if "map" in cspec:
             for find, replace in cspec.map.items():
                 dataset_train[cname] = dataset_train[cname].replace(
@@ -83,9 +126,9 @@ def load_dataset(dataset_str: str, features_max: int):
             std = dataset_full[cname].std()
             dataset_train[cname] = (dataset_train[cname] - mean) / std
             dataset_test[cname] = (dataset_test[cname] - mean) / std
-    x_train = load_and_pad(dataset_train, x_columns, features_max)
-    y_train = load_and_pad(dataset_train, y_column, 1)
-    x_test = load_and_pad(dataset_test, x_columns, features_max)
-    y_test = load_and_pad(dataset_test, y_column, 1)
+    x_train = load_and_pad(dataset_train, x_columns, features_max)[:train_size]
+    y_train = load_and_pad(dataset_train, y_column, 1)[:train_size]
+    x_test = load_and_pad(dataset_test, x_columns, features_max)[:test_size]
+    y_test = load_and_pad(dataset_test, y_column, 1)[:test_size]
 
     return x_train, y_train, x_test, y_test
