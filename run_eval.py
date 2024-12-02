@@ -5,16 +5,19 @@ from gym.eval import evaluate_on_real, evaluate_on_synthetic
 def main():
     """Main function to run evaluation of hardcoded model path."""
     mode = "real"
+    model = "results/30-11-2024/run_0/model_weights.pth"
     if mode == "real":
         evaluate_on_real(
-            path="results/29-11-2024/run_2/model_weights.pth",
+            path=model,
             eval_config=config.training,
-            datasets=["titanic"],
+            datasets=["titanic", "student_depression"],
+            only_quant=False,
         )
     else:
         evaluate_on_synthetic(
-            path="results/29-11-2024/run_2/model_weights.pth",
+            path=model,
             eval_config=config.training,
+            only_quant=False,
         )
 
 

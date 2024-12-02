@@ -8,7 +8,12 @@ from matplotlib import pyplot as plt
 
 
 def plot_confusion_matrix(
-    pred_bin, gt_bin, model: str = "", roc_auc: int = -1, instant_show: bool = True,
+    pred_bin,
+    gt_bin,
+    model: str = "",
+    roc_auc: int = -1,
+    *,
+    instant_show: bool = True,
 ):
     """Display confusion matrix."""
     plt.figure()
@@ -69,7 +74,7 @@ def plot_flow_trajectory(gt: torch.Tensor, trajectory: torch.Tensor):
     plt.show()
 
 
-def plot_roc_auc_scores(roc_auc_scores):
+def plot_roc_auc_scores(roc_auc_scores, roc_auc_scores_benchmark = None):
     """Plot ROC AUC scores."""
     # use seaborn to plot the ROC AUC scores (roc_auc_scores is list of scalars)
     # figure size 16x12
@@ -77,12 +82,49 @@ def plot_roc_auc_scores(roc_auc_scores):
     sns.set_theme(style="whitegrid")
     plt.figure(figsize=(12, 8))
     # histplot
-    sns.histplot(roc_auc_scores, bins=10, kde=False)  # Adjust bins as needed
-    plt.xlabel("Model")
-    plt.ylabel("ROC AUC Score")
+    sns.histplot(
+        roc_auc_scores,
+        bins=10,
+        binrange=(0.5, 1),
+        kde=False,
+        label="CFM-predicted MLP",
+        multiple="dodge",
+    )  # Adjust bins as needed
+    if roc_auc_scores_benchmark is not None:
+        sns.histplot(
+            roc_auc_scores_benchmark,
+            bins=10,
+            kde=False,
+            binrange=(0.5, 1),
+            label="Logistic Regression",
+            multiple="dodge",
+        )
+    plt.xlabel("ROC AUC Score")
+    plt.ylabel("Number of models")
     # rotate x-axis labels for better readability
     plt.xticks(rotation=25)
     plt.title(f"Histogram of ROC AUC Scores across {len(roc_auc_scores)} models")
+    plt.legend()
+    plt.show()
+
+
+def plot_wins_losses_ties(
+    scores_model,
+    scores_benchmark,
+    model_name: str = "CFM-predicted MLP",
+    benchmark_name: str = "Logistic Regression",
+):
+    """Plot wins, losses and ties of model compared to benchmark."""
+    scores_model = np.array(scores_model)
+    scores_benchmark = np.array(scores_benchmark)
+    wins = scores_model > scores_benchmark
+    losses = scores_model < scores_benchmark
+    ties = scores_model == scores_benchmark
+
+    sns.set_theme(style="whitegrid")
+    plt.figure()
+    plt.title(f"Wins-Losses-Ties of {model_name} compared to {benchmark_name}")
+    plt.bar(["Wins", "Losses", "Ties"], [wins.sum(), losses.sum(), ties.sum()])
     plt.show()
 
 
